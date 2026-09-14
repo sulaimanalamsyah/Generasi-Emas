@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../routes.dart';
 import '../services/api_client.dart';
+import '../widgets/common.dart';
 
 class ForgotPasswordPage extends StatefulWidget {
   const ForgotPasswordPage({super.key});
@@ -24,25 +25,42 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   Future<void> _showDialogInfo(String title, String message, {bool isError = false}) {
     return showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
             Icon(
-              isError ? Icons.error : Icons.check_circle,
-              color: isError ? Colors.red : Colors.green,
+              isError ? Icons.error_outline : Icons.check_circle_outline,
+              color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
             ),
             const SizedBox(width: 8),
-            Text(
-              title,
-              style: TextStyle(color: isError ? Colors.red : Colors.green, fontSize: 16),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 18,
+                ),
+              ),
             ),
           ],
         ),
-        content: Text(message),
+        content: Text(
+          message,
+          style: const TextStyle(fontSize: 15, color: Color(0xFF334155)),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text("OK"),
+            child: const Text(
+              "OK",
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF10B981),
+              ),
+            ),
           ),
         ],
       ),
@@ -51,7 +69,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 
   String? _validatePhone(String? v) {
     final s = (v ?? '').trim();
-    if (s.isEmpty) return 'Wajib diisi';
+    if (s.isEmpty) return 'Nomor WhatsApp wajib diisi';
     if (s.replaceAll(RegExp(r'\D'), '').length < 8) return 'Min 8 digit';
     return null;
   }
@@ -69,8 +87,8 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       if (!mounted) return;
 
       await _showDialogInfo(
-          "OTP Terkirim",
-          "Kode OTP telah dikirim ke WhatsApp Anda."
+        "OTP Terkirim",
+        "Kode OTP telah dikirim ke WhatsApp Anda.",
       );
 
       if (!mounted) return;
@@ -96,261 +114,160 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Ukuran Layar Responsive
-    final size = MediaQuery.of(context).size;
-    final double illustrationHeight = size.height * 0.35;
-    final double cardTop = illustrationHeight - 30;
-
     return Scaffold(
-      backgroundColor: const Color(0xFF14AE5C),
-      body: Stack(
-        children: [
-          // 1. ILUSTRASI
-          Positioned(
-            left: 0,
-            right: 0,
-            top:25,
-            height: illustrationHeight - 40,
-            child: Center(
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A), size: 24),
+          tooltip: 'Kembali',
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
               child: Container(
-                constraints: const BoxConstraints(maxWidth: 300),
-                child: Image.asset(
-                  "assets/forgot-reset-logo.png",
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return const Icon(Icons.lock_reset, size: 100, color: Colors.white);
-                  },
-                ),
-              ),
-            ),
-          ),
-
-          // 2. CARD BACKGROUND
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            top: cardTop,
-            child: Container(
-              decoration: const ShapeDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment(0.50, -0.00),
-                  end: Alignment(0.50, 1.00),
-                  colors: [Color(0xFFDADADA), Color(0x9914AE5C)],
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(35),
-                    topRight: Radius.circular(35),
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-          // 3. CONTENT FORM
-          Positioned.fill(
-            top: cardTop + 20,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 10),
-              child: Form(
-                key: _form,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // JUDUL
-                    const Text(
-                      'Lupa Password?',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 24,
-                        fontFamily: 'Inter',
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.33,
-                      ),
+                padding: const EdgeInsets.all(28),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x0F0F172A),
+                      blurRadius: 16,
+                      offset: Offset(0, 4),
                     ),
-                    const SizedBox(height: 20),
-
-                    // SUB-JUDUL
-                    const Text(
-                      'Minta OTP via WhatsApp',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 16,
-                        fontFamily: 'Inter',
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.33,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    const Text(
-                      'Masukkan nomor WhatsApp yang terdaftar untuk menerima OTP',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 14,
-                        fontFamily: 'Inter',
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.33,
-                      ),
-                    ),
-                    const SizedBox(height: 30),
-
-                    // INPUT NOMOR HP
-                    _FigmaInput(
-                      label: "Nomor WhatsApp",
-                      icon: Icons.phone_android_outlined,
-                      controller: _phone,
-                      validator: _validatePhone,
-                      keyboardType: TextInputType.phone,
-                    ),
-
-                    const SizedBox(height: 40),
-
-                    // TOMBOL KIRIM OTP
-                    _FigmaButton(
-                      label: _loading ? "Mengirim..." : "Kirim OTP",
-                      onTap: _loading ? () {} : _requestOtp,
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    // TOMBOL KEMBALI
-                    GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: const Text(
-                        'Kembali',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.black,
-                          fontSize: 13,
-                          fontFamily: 'Inter',
-                          fontWeight: FontWeight.w800,
-                          decoration: TextDecoration.underline,
-                          letterSpacing: -0.33,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 40),
                   ],
                 ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+                child: Form(
+                  key: _form,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Centralized Logo
+                      const Center(child: AppLogo(size: 90)),
+                      const SizedBox(height: 20),
 
-// WIDGET
-class _FigmaInput extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final TextEditingController controller;
-  final String? Function(String?)? validator;
-  final TextInputType? keyboardType;
+                      // Headings
+                      const Text(
+                        'Lupa Password?',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontFamily: 'Nunito',
+                          fontSize: 24,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
 
-  const _FigmaInput({
-    required this.label,
-    required this.icon,
-    required this.controller,
-    this.validator,
-    this.keyboardType,
-  });
+                      const Text(
+                        'Masukkan nomor WhatsApp yang terdaftar untuk menerima kode OTP',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w400,
+                          color: Color(0xFF475569),
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 28),
 
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Stack(
-          children: [
-            // Background Box
-            Container(
-              height: 50,
-              decoration: ShapeDecoration(
-                color: Colors.white.withValues(alpha: 0.8),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                shadows: const [BoxShadow(color: Color(0x3F000000), blurRadius: 4, offset: Offset(0, 4))],
-              ),
-            ),
-            // Input Field
-            Padding(
-              padding: const EdgeInsets.only(left: 36, right: 16),
-              child: TextFormField(
-                controller: controller,
-                keyboardType: keyboardType,
-                validator: validator,
-                style: const TextStyle(fontSize: 14, color: Colors.black87),
-                decoration: InputDecoration(
-                  hintText: label,
-                  hintStyle: const TextStyle(color: Colors.black54, fontSize: 13, fontFamily: 'Inter'),
-                  contentPadding: const EdgeInsets.only(left: 12, top: 14, bottom: 14),
-                  border: InputBorder.none,
-                  errorStyle: const TextStyle(
-                    color: Color.fromARGB(255, 185, 0, 0),
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    height: 1.2,
+                      // Input Field
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Nomor WhatsApp",
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          TextFormField(
+                            controller: _phone,
+                            keyboardType: TextInputType.phone,
+                            validator: _validatePhone,
+                            style: const TextStyle(fontFamily: 'Inter', fontSize: 15, color: Color(0xFF0F172A)),
+                            decoration: InputDecoration(
+                              hintText: 'Masukkan Nomor WhatsApp',
+                              hintStyle: const TextStyle(fontFamily: 'Inter', color: Color(0xFF94A3B8), fontSize: 14),
+                              prefixIcon: const Icon(Icons.phone_android_rounded, color: Color(0xFF475569), size: 20),
+                              filled: true,
+                              fillColor: Colors.white,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: Color(0xFF10B981), width: 2),
+                              ),
+                              errorBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: Color(0xFFEF4444)),
+                              ),
+                              focusedErrorBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(color: Color(0xFFEF4444), width: 2),
+                              ),
+                              errorStyle: const TextStyle(
+                                fontFamily: 'Inter',
+                                color: Color(0xFFEF4444),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 28),
+
+                      // Submit Button
+                      SizedBox(
+                        height: 50,
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF10B981),
+                            disabledBackgroundColor: const Color(0xFFCBD5E1),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            textStyle: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          onPressed: _loading ? null : _requestOtp,
+                          child: _loading
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text('Kirim OTP'),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-            ),
-            // Icon
-            Positioned(
-              left: 12,
-              top: 13,
-              child: Icon(icon, color: Colors.grey, size: 24),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-// WIDGET
-class _FigmaButton extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-
-  const _FigmaButton({
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      height: 40,
-      decoration: ShapeDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment(0.0, 0.5),
-          end: Alignment(1.0, 0.5),
-          colors: [Color(0xFF27AAE1), Color(0xFF155C7B)],
-        ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        shadows: const [BoxShadow(color: Color(0x3F000000), blurRadius: 3, offset: Offset(0, 4))],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(15),
-          onTap: onTap,
-          child: Center(
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 14,
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w600,
               ),
             ),
           ),

@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'dart:async';
 
-// Ganti import halaman perawat sesuai struktur proyekmu
 import '../pages/nurse/home_nurse_page.dart';
 import '../pages/nurse/nurse_agg_page.dart';
 import '../pages/nurse/folder_nurse_page.dart';
@@ -49,25 +47,10 @@ class _NurseShell4State extends State<NurseShell4> {
     }
   }
 
-  void _onSelect(int i) {
-    if (i == _index) return;
-    setState(() => _index = i);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(index: _index, children: _tabs),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: _onSelect,
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home), label: 'Beranda'),
-          NavigationDestination(icon: Icon(Icons.people_alt), label: 'Pasien'),
-          NavigationDestination(icon: Icon(Icons.folder), label: 'Folder'),
-          NavigationDestination(icon: Icon(Icons.quiz), label: 'Quiz'),
-        ],
-      ),
     );
   }
 }
@@ -78,6 +61,7 @@ class _KeepAlive extends StatefulWidget {
   @override
   State<_KeepAlive> createState() => _KeepAliveState();
 }
+
 class _KeepAliveState extends State<_KeepAlive>
     with AutomaticKeepAliveClientMixin {
   @override

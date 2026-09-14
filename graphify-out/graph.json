@@ -1,0 +1,1247 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "label": "Generasi Emas App",
+      "type": "concept",
+      "confidence": "EXTRACTED",
+      "source_file": "pubspec.yaml",
+      "description": "Flutter mobile app for maternal health education and stunting prevention (Partisipasi Ibu & Edukasi Stunting). Targets Indonesian mothers (patients) and healthcare nurses.",
+      "file_type": "concept",
+      "id": "generasi_emas_app",
+      "community": 3,
+      "norm_label": "generasi emas app"
+    },
+    {
+      "label": "main.dart",
+      "type": "module",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/main.dart",
+      "description": "App entry point. Initializes Firebase, registers FCM background message handler, initializes FcmService, sets up error boundary UI, runs GenerasiEmasApp.",
+      "file_type": "concept",
+      "id": "lib_main_dart",
+      "community": 5,
+      "norm_label": "main.dart"
+    },
+    {
+      "label": "GenerasiEmasApp",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/app.dart",
+      "description": "Root MaterialApp widget. Configures routing via Routes.onGenerateRoute, locale, and theme.",
+      "file_type": "concept",
+      "id": "lib_app_dart",
+      "community": 5,
+      "norm_label": "generasiemasapp"
+    },
+    {
+      "label": "Routes",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "description": "Centralized routing class with static route constants and onGenerateRoute factory. Handles patient flow (splash\u2192start\u2192register\u2192consent\u2192activate\u2192login\u2192home) and nurse flow (nurseHome\u2192nurseFolder\u2192nurseBrainstorm\u2192nurseAgg\u2192nursePatientDetail\u2192nurseQuiz).",
+      "file_type": "concept",
+      "id": "lib_routes_dart",
+      "community": 0,
+      "norm_label": "routes"
+    },
+    {
+      "label": "ApiClient",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/services/api_client.dart",
+      "description": "HTTP client wrapper for all backend API calls. Handles auth tokens, request/response JSON, error handling. Central data-fetch layer for the entire app.",
+      "file_type": "concept",
+      "id": "lib_services_api_client",
+      "community": 2,
+      "norm_label": "apiclient"
+    },
+    {
+      "label": "AuthService",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/services/auth_service.dart",
+      "description": "Manages authentication state: login, logout, token persistence via shared_preferences. Acts as single source of truth for current user session.",
+      "file_type": "concept",
+      "id": "lib_services_auth_service",
+      "community": 7,
+      "norm_label": "authservice"
+    },
+    {
+      "label": "FcmService",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/services/fcm_service.dart",
+      "description": "Firebase Cloud Messaging service. Handles push notification initialization, foreground/background message handlers, local notification display via flutter_local_notifications.",
+      "file_type": "concept",
+      "id": "lib_services_fcm_service",
+      "community": 5,
+      "norm_label": "fcmservice"
+    },
+    {
+      "label": "PatientShell",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/shells/patient_shell.dart",
+      "description": "Bottom-navigation shell for patient users. Tabs: Home, Logbook, Baby Journal, Profile.",
+      "file_type": "concept",
+      "id": "lib_shells_patient_shell",
+      "community": 2,
+      "norm_label": "patientshell"
+    },
+    {
+      "label": "NurseShell4",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/shells/nurse_shell_4.dart",
+      "description": "Bottom-navigation shell for nurse users. 4-tab navigation scaffold.",
+      "file_type": "concept",
+      "id": "nurse_shell",
+      "community": 4,
+      "norm_label": "nurseshell4"
+    },
+    {
+      "label": "SplashPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/splash_page.dart",
+      "description": "Initial loading screen. Checks auth state and routes to start or home.",
+      "file_type": "concept",
+      "id": "lib_pages_splash_page",
+      "community": 7,
+      "norm_label": "splashpage"
+    },
+    {
+      "label": "StartPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/start_page.dart",
+      "description": "Landing/welcome page. Entry point for unauthenticated users.",
+      "file_type": "concept",
+      "id": "lib_pages_start_page",
+      "community": 0,
+      "norm_label": "startpage"
+    },
+    {
+      "label": "LoginPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/login_page.dart",
+      "description": "User login form with phone/email and password. Calls AuthService.",
+      "file_type": "concept",
+      "id": "lib_pages_login_page",
+      "community": 7,
+      "norm_label": "loginpage"
+    },
+    {
+      "label": "RegisterPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/register_page.dart",
+      "description": "New user registration. Collects mother/patient details and calls ApiClient to register.",
+      "file_type": "concept",
+      "id": "lib_pages_register_page",
+      "community": 2,
+      "norm_label": "registerpage"
+    },
+    {
+      "label": "ConsentPages",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/consent_pages.dart",
+      "description": "Informed consent pages (read-only view and registration consent). Required before registration.",
+      "file_type": "concept",
+      "id": "lib_pages_consent_pages",
+      "community": 0,
+      "norm_label": "consentpages"
+    },
+    {
+      "label": "PrivacyPolicyPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/privacy_policy_page.dart",
+      "description": "Privacy policy display page.",
+      "file_type": "concept",
+      "id": "lib_pages_privacy_policy_page",
+      "community": 0,
+      "norm_label": "privacypolicypage"
+    },
+    {
+      "label": "ActivatePage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/activate_page.dart",
+      "description": "Account activation flow using verification code.",
+      "file_type": "concept",
+      "id": "lib_pages_activate_page",
+      "community": 0,
+      "norm_label": "activatepage"
+    },
+    {
+      "label": "ForgotPasswordPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/forgot_password_page.dart",
+      "description": "Password recovery - sends reset link/code via phone.",
+      "file_type": "concept",
+      "id": "lib_pages_forgot_password_page",
+      "community": 0,
+      "norm_label": "forgotpasswordpage"
+    },
+    {
+      "label": "ResetPasswordPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/reset_password_page.dart",
+      "description": "Password reset form. Accepts token and optional presetPhone. Calls ApiClient.",
+      "file_type": "concept",
+      "id": "lib_pages_reset_password_page",
+      "community": 0,
+      "norm_label": "resetpasswordpage"
+    },
+    {
+      "label": "HomePatientPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/home_patient_page.dart",
+      "description": "Main dashboard for patients. Shows educational modules, quick links to pre-test, post-test, quiz, logbook, baby journal, references, contact researchers. Largest page (37KB).",
+      "file_type": "concept",
+      "id": "lib_pages_home_patient_page",
+      "community": 1,
+      "norm_label": "homepatientpage"
+    },
+    {
+      "label": "PretestPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/pretest_page.dart",
+      "description": "Pre-test assessment to measure baseline knowledge about stunting/maternal health before the educational program.",
+      "file_type": "concept",
+      "id": "lib_pages_pretest_page",
+      "community": 1,
+      "norm_label": "pretestpage"
+    },
+    {
+      "label": "PosttestPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/posttest_page.dart",
+      "description": "Post-test assessment to measure knowledge gain after completing the educational program.",
+      "file_type": "concept",
+      "id": "lib_pages_posttest_page",
+      "community": 1,
+      "norm_label": "posttestpage"
+    },
+    {
+      "label": "QuizPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/quiz_page.dart",
+      "description": "Quiz page for patient users. Interactive knowledge check.",
+      "file_type": "concept",
+      "id": "lib_pages_quiz_page",
+      "community": 1,
+      "norm_label": "quizpage"
+    },
+    {
+      "label": "BrainstormingPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/brainstorming_page.dart",
+      "description": "Brainstorming/discussion activity page for patients.",
+      "file_type": "concept",
+      "id": "lib_pages_brainstorming_page",
+      "community": 1,
+      "norm_label": "brainstormingpage"
+    },
+    {
+      "label": "LogbookPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/logbook_page.dart",
+      "description": "Patient logbook for recording daily health activities. Largest page (43KB).",
+      "file_type": "concept",
+      "id": "lib_pages_logbook_page",
+      "community": 2,
+      "norm_label": "logbookpage"
+    },
+    {
+      "label": "BabyJournalPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/baby_journal_page.dart",
+      "description": "Baby health journal - track infant growth, feeding, and development milestones. Second largest page (35KB).",
+      "file_type": "concept",
+      "id": "lib_pages_baby_journal_page",
+      "community": 2,
+      "norm_label": "babyjournalpage"
+    },
+    {
+      "label": "ModulesPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/modules_page.dart",
+      "description": "Educational modules listing page. Lists available learning modules about stunting prevention.",
+      "file_type": "concept",
+      "id": "lib_pages_modules_page",
+      "community": 6,
+      "norm_label": "modulespage"
+    },
+    {
+      "label": "ReferencesPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/references_page.dart",
+      "description": "Reference materials and resources page for stunting/maternal health literature.",
+      "file_type": "concept",
+      "id": "lib_pages_references_page",
+      "community": 1,
+      "norm_label": "referencespage"
+    },
+    {
+      "label": "ContactResearchersPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/contact_researchers_page.dart",
+      "description": "Contact form/info page for reaching out to research team.",
+      "file_type": "concept",
+      "id": "lib_pages_contact_researchers_page",
+      "community": 1,
+      "norm_label": "contactresearcherspage"
+    },
+    {
+      "label": "NotificationsPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/notifications_page.dart",
+      "description": "Notifications list page showing FCM push notifications.",
+      "file_type": "concept",
+      "id": "lib_pages_notifications_page",
+      "community": 5,
+      "norm_label": "notificationspage"
+    },
+    {
+      "label": "ProfilePage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/profile_page.dart",
+      "description": "User profile management. Links to mother detail and infant detail sub-pages.",
+      "file_type": "concept",
+      "id": "lib_pages_profile_page",
+      "community": 0,
+      "norm_label": "profilepage"
+    },
+    {
+      "label": "ProfileMotherDetailPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/profile_mother_detail_page.dart",
+      "description": "Detailed profile view/edit for the mother/patient data.",
+      "file_type": "concept",
+      "id": "lib_pages_profile_mother_detail_page",
+      "community": 0,
+      "norm_label": "profilemotherdetailpage"
+    },
+    {
+      "label": "ProfileInfantDetailPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/profile_infant_detail_page.dart",
+      "description": "Detailed profile view/edit for infant data - weight, height, age, etc.",
+      "file_type": "concept",
+      "id": "lib_pages_profile_infant_detail_page",
+      "community": 0,
+      "norm_label": "profileinfantdetailpage"
+    },
+    {
+      "label": "FatherLinkPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/father_link_page.dart",
+      "description": "Page to link the father's account or share data with the father.",
+      "file_type": "concept",
+      "id": "lib_pages_father_link_page",
+      "community": 0,
+      "norm_label": "fatherlinkpage"
+    },
+    {
+      "label": "WebformPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/webform_page.dart",
+      "description": "WebView-based form page for displaying external web forms (e.g., research surveys).",
+      "file_type": "concept",
+      "id": "lib_pages_webform_page",
+      "community": 6,
+      "norm_label": "webformpage"
+    },
+    {
+      "label": "HomeNursePage",
+      "type": "class",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/nurse/home_nurse_page.dart",
+      "description": "Nurse home dashboard. Shows list of assigned patients.",
+      "file_type": "concept",
+      "id": "lib_pages_nurse_home_nurse_page",
+      "community": 4,
+      "norm_label": "homenursepage"
+    },
+    {
+      "label": "FolderNursePage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/nurse/folder_nurse_page.dart",
+      "description": "Nurse folder/file management page for patient documentation.",
+      "file_type": "concept",
+      "id": "lib_pages_nurse_folder_nurse_page",
+      "community": 4,
+      "norm_label": "foldernursepage"
+    },
+    {
+      "label": "BrainstormingNursePage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/nurse/brainstorming_nurse_page.dart",
+      "description": "Nurse-facing brainstorming facilitation page.",
+      "file_type": "concept",
+      "id": "lib_pages_nurse_brainstorming_nurse_page",
+      "community": 0,
+      "norm_label": "brainstormingnursepage"
+    },
+    {
+      "label": "NurseAggPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/nurse/nurse_agg_page.dart",
+      "description": "Nurse aggregate data/analytics page - patient progress overview.",
+      "file_type": "concept",
+      "id": "lib_pages_nurse_nurse_agg_page",
+      "community": 4,
+      "norm_label": "nurseaggpage"
+    },
+    {
+      "label": "PatientDetailPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/nurse/patient_detail_page.dart",
+      "description": "Detailed patient view for nurses - see individual patient data, progress, journal entries.",
+      "file_type": "concept",
+      "id": "lib_pages_nurse_patient_detail_page",
+      "community": 2,
+      "norm_label": "patientdetailpage"
+    },
+    {
+      "label": "QuizNursePage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/nurse/quiz_nurse_page.dart",
+      "description": "Nurse-facing quiz management/review page.",
+      "file_type": "concept",
+      "id": "lib_pages_nurse_quiz_nurse_page",
+      "community": 0,
+      "norm_label": "quiznursepage"
+    },
+    {
+      "label": "Common Widgets",
+      "type": "module",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/widgets/common.dart",
+      "description": "Shared UI widgets used across multiple pages.",
+      "file_type": "concept",
+      "id": "lib_widgets_common_widgets",
+      "community": 8,
+      "norm_label": "common widgets"
+    },
+    {
+      "label": "LoadingOverlay",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/widgets/loading_overlay.dart",
+      "description": "Loading spinner overlay widget for async operations.",
+      "file_type": "concept",
+      "id": "lib_widgets_loading_overlay",
+      "community": 2,
+      "norm_label": "loadingoverlay"
+    },
+    {
+      "label": "InAppViewerPage",
+      "type": "class",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/widgets/in_app_viewer_page.dart",
+      "description": "In-app browser/viewer using webview_flutter for displaying external content.",
+      "file_type": "concept",
+      "id": "in_app_viewer",
+      "community": 6,
+      "norm_label": "inappviewerpage"
+    },
+    {
+      "label": "Stunting Education Mission",
+      "type": "concept",
+      "confidence": "EXTRACTED",
+      "source_file": "pubspec.yaml",
+      "description": "Core app purpose: educate Indonesian mothers about stunting prevention, maternal nutrition, and infant health through structured modules, assessments, and journaling.",
+      "file_type": "concept",
+      "id": "stunting_education",
+      "community": 3,
+      "norm_label": "stunting education mission"
+    },
+    {
+      "label": "Dual-Role User System",
+      "type": "concept",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "description": "App serves two user roles: (1) Patients (mothers) with full educational and journaling features, (2) Nurses who monitor patients and manage clinical data.",
+      "file_type": "concept",
+      "id": "dual_role_system",
+      "community": 4,
+      "norm_label": "dual-role user system"
+    },
+    {
+      "label": "Firebase Integration",
+      "type": "concept",
+      "confidence": "EXTRACTED",
+      "source_file": "pubspec.yaml",
+      "description": "Firebase Core and Firebase Cloud Messaging for push notifications to mothers and nurses.",
+      "file_type": "concept",
+      "id": "firebase_integration",
+      "community": 5,
+      "norm_label": "firebase integration"
+    },
+    {
+      "label": "Pre/Post Test Assessment System",
+      "type": "concept",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "description": "Knowledge measurement system: PretestPage before program \u2192 educational modules \u2192 PosttestPage to measure knowledge gain about stunting prevention.",
+      "file_type": "concept",
+      "id": "assessment_system",
+      "community": 1,
+      "norm_label": "pre/post test assessment system"
+    },
+    {
+      "label": "Health Journaling System",
+      "type": "concept",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "description": "Dual journaling: LogbookPage for mother's daily health records + BabyJournalPage for infant growth tracking.",
+      "file_type": "concept",
+      "id": "health_journaling",
+      "community": 2,
+      "norm_label": "health journaling system"
+    },
+    {
+      "label": "Project Dependencies",
+      "type": "concept",
+      "confidence": "EXTRACTED",
+      "source_file": "pubspec.yaml",
+      "description": "Key packages: http (API), webview_flutter, video_player+chewie, firebase_core+messaging, flutter_local_notifications, shared_preferences, connectivity_plus, flutter_localization",
+      "file_type": "concept",
+      "id": "pubspec_dependencies",
+      "community": 3,
+      "norm_label": "project dependencies"
+    },
+    {
+      "label": "Multi-Platform Flutter Build",
+      "type": "concept",
+      "confidence": "EXTRACTED",
+      "source_file": "linux/CMakeLists.txt",
+      "description": "Built for Android (primary), iOS, Linux, macOS, Windows, and Web via Flutter's multi-platform toolchain.",
+      "file_type": "concept",
+      "id": "flutter_multiplatform",
+      "community": 3,
+      "norm_label": "multi-platform flutter build"
+    },
+    {
+      "label": "App Visual Assets",
+      "type": "concept",
+      "confidence": "EXTRACTED",
+      "source_file": "assets/icon.png",
+      "description": "Brand assets: main icon, screen-specific logos (login, register, activate, forgot-reset), and feature icons (modules, quiz, pre-test, post-test, references, video).",
+      "file_type": "concept",
+      "id": "app_assets",
+      "community": 3,
+      "norm_label": "app visual assets"
+    },
+    {
+      "label": "Web App Manifest (PWA)",
+      "type": "concept",
+      "confidence": "EXTRACTED",
+      "source_file": "web/index.html",
+      "description": "PWA manifest with 192x192 and 512x512 app icons (regular and maskable variants).",
+      "file_type": "concept",
+      "id": "web_manifest",
+      "community": 3,
+      "norm_label": "web app manifest (pwa)"
+    }
+  ],
+  "links": [
+    {
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "source_file": "pubspec.yaml",
+      "source": "generasi_emas_app",
+      "target": "app_assets",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "generasi_emas_app",
+      "target": "assessment_system",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "generasi_emas_app",
+      "target": "dual_role_system",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "source_file": "pubspec.yaml",
+      "source": "generasi_emas_app",
+      "target": "firebase_integration",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "targets",
+      "confidence": "EXTRACTED",
+      "source_file": "linux/CMakeLists.txt",
+      "source": "generasi_emas_app",
+      "target": "flutter_multiplatform",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "generasi_emas_app",
+      "target": "health_journaling",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "depends_on",
+      "confidence": "EXTRACTED",
+      "source_file": "pubspec.yaml",
+      "source": "generasi_emas_app",
+      "target": "pubspec_dependencies",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "source_file": "pubspec.yaml",
+      "source": "generasi_emas_app",
+      "target": "stunting_education",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "has",
+      "confidence": "EXTRACTED",
+      "source_file": "web/index.html",
+      "source": "generasi_emas_app",
+      "target": "web_manifest",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "initializes",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/main.dart",
+      "source": "lib_main_dart",
+      "target": "firebase_integration",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "runs",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/main.dart",
+      "source": "lib_main_dart",
+      "target": "lib_app_dart",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "initializes",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/main.dart",
+      "source": "lib_main_dart",
+      "target": "lib_services_fcm_service",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/app.dart",
+      "source": "lib_app_dart",
+      "target": "lib_routes_dart",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_activate_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_baby_journal_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_brainstorming_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_consent_pages",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_contact_researchers_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_father_link_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_forgot_password_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_logbook_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_login_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_modules_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_notifications_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_nurse_brainstorming_nurse_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_nurse_folder_nurse_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_nurse_nurse_agg_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_nurse_patient_detail_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_nurse_quiz_nurse_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_posttest_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_pretest_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_privacy_policy_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_profile_infant_detail_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_profile_mother_detail_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_profile_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_quiz_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_references_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_register_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_reset_password_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_splash_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_pages_start_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "lib_shells_patient_shell",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "routes_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "lib_routes_dart",
+      "target": "nurse_shell",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/baby_journal_page.dart",
+      "source": "lib_pages_baby_journal_page",
+      "target": "lib_services_api_client",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/logbook_page.dart",
+      "source": "lib_pages_logbook_page",
+      "target": "lib_services_api_client",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/login_page.dart",
+      "source": "lib_pages_login_page",
+      "target": "lib_services_api_client",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/nurse/home_nurse_page.dart",
+      "source": "lib_pages_nurse_home_nurse_page",
+      "target": "lib_services_api_client",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/nurse/patient_detail_page.dart",
+      "source": "lib_pages_nurse_patient_detail_page",
+      "target": "lib_services_api_client",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/posttest_page.dart",
+      "source": "lib_pages_posttest_page",
+      "target": "lib_services_api_client",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/pretest_page.dart",
+      "source": "lib_pages_pretest_page",
+      "target": "lib_services_api_client",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/profile_page.dart",
+      "source": "lib_pages_profile_page",
+      "target": "lib_services_api_client",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/register_page.dart",
+      "source": "lib_pages_register_page",
+      "target": "lib_services_api_client",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "wraps",
+      "confidence": "INFERRED",
+      "source_file": "lib/widgets/loading_overlay.dart",
+      "source": "lib_widgets_loading_overlay",
+      "target": "lib_services_api_client",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/login_page.dart",
+      "source": "lib_pages_login_page",
+      "target": "lib_services_auth_service",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/splash_page.dart",
+      "source": "lib_pages_splash_page",
+      "target": "lib_services_auth_service",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "uses",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/services/fcm_service.dart",
+      "source": "lib_services_fcm_service",
+      "target": "firebase_integration",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "feeds_into",
+      "confidence": "INFERRED",
+      "source_file": "lib/services/fcm_service.dart",
+      "source": "lib_services_fcm_service",
+      "target": "lib_pages_notifications_page",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "has_role",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "dual_role_system",
+      "target": "lib_shells_patient_shell",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "INFERRED",
+      "source_file": "lib/shells/patient_shell.dart",
+      "source": "lib_shells_patient_shell",
+      "target": "lib_pages_baby_journal_page",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/shells/patient_shell.dart",
+      "source": "lib_shells_patient_shell",
+      "target": "lib_pages_home_patient_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "INFERRED",
+      "source_file": "lib/shells/patient_shell.dart",
+      "source": "lib_shells_patient_shell",
+      "target": "lib_pages_logbook_page",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "contains",
+      "confidence": "INFERRED",
+      "source_file": "lib/shells/patient_shell.dart",
+      "source": "lib_shells_patient_shell",
+      "target": "lib_pages_profile_page",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "has_role",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "dual_role_system",
+      "target": "nurse_shell",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "INFERRED",
+      "source_file": "lib/shells/nurse_shell_4.dart",
+      "source": "nurse_shell",
+      "target": "lib_pages_nurse_folder_nurse_page",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "contains",
+      "confidence": "INFERRED",
+      "source_file": "lib/shells/nurse_shell_4.dart",
+      "source": "nurse_shell",
+      "target": "lib_pages_nurse_home_nurse_page",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "contains",
+      "confidence": "INFERRED",
+      "source_file": "lib/shells/nurse_shell_4.dart",
+      "source": "nurse_shell",
+      "target": "lib_pages_nurse_nurse_agg_page",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "navigates_to",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/home_patient_page.dart",
+      "source": "lib_pages_home_patient_page",
+      "target": "lib_pages_brainstorming_page",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "navigates_to",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/home_patient_page.dart",
+      "source": "lib_pages_home_patient_page",
+      "target": "lib_pages_contact_researchers_page",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "navigates_to",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/home_patient_page.dart",
+      "source": "lib_pages_home_patient_page",
+      "target": "lib_pages_modules_page",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "navigates_to",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/home_patient_page.dart",
+      "source": "lib_pages_home_patient_page",
+      "target": "lib_pages_notifications_page",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "navigates_to",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/home_patient_page.dart",
+      "source": "lib_pages_home_patient_page",
+      "target": "lib_pages_posttest_page",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "navigates_to",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/home_patient_page.dart",
+      "source": "lib_pages_home_patient_page",
+      "target": "lib_pages_pretest_page",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "navigates_to",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/home_patient_page.dart",
+      "source": "lib_pages_home_patient_page",
+      "target": "lib_pages_quiz_page",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "navigates_to",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/home_patient_page.dart",
+      "source": "lib_pages_home_patient_page",
+      "target": "lib_pages_references_page",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "consists_of",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "assessment_system",
+      "target": "lib_pages_pretest_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "consists_of",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "assessment_system",
+      "target": "lib_pages_posttest_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "consists_of",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "assessment_system",
+      "target": "lib_pages_quiz_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "consists_of",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "health_journaling",
+      "target": "lib_pages_logbook_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "consists_of",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/routes.dart",
+      "source": "health_journaling",
+      "target": "lib_pages_baby_journal_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "lib/pages/modules_page.dart",
+      "source": "lib_pages_modules_page",
+      "target": "in_app_viewer",
+      "confidence_score": 0.5
+    },
+    {
+      "relation": "navigates_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/profile_page.dart",
+      "source": "lib_pages_profile_page",
+      "target": "lib_pages_profile_infant_detail_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "navigates_to",
+      "confidence": "EXTRACTED",
+      "source_file": "lib/pages/profile_page.dart",
+      "source": "lib_pages_profile_page",
+      "target": "lib_pages_profile_mother_detail_page",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "related_to",
+      "confidence": "INFERRED",
+      "source_file": "lib/widgets/in_app_viewer_page.dart",
+      "source": "in_app_viewer",
+      "target": "lib_pages_webform_page",
+      "confidence_score": 0.5
+    }
+  ],
+  "hyperedges": [],
+  "built_at_commit": "8bfc0e6b042c8d18d0cc3ff15179b3a481db1f23"
+}

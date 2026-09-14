@@ -1,9 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class Prefs {
   static Future<SharedPreferences> get _p async => SharedPreferences.getInstance();
+
+  // Secure storage for sensitive credentials (JWT, cookie)
+  // Uses Android Keystore (API 23+) / iOS Keychain automatically
+  static const _secure = FlutterSecureStorage();
 
   // --- KEYS ---
   static const _kLastStartSeenMs = 'last_start_seen_ms';
@@ -17,18 +22,18 @@ class Prefs {
   static const _kFormLinks = 'FORM_LINKS';
   static const _kCookie = 'auth_cookie';
 
-  // --- TOKEN & LOGOUT ---
-  static Future<void> setToken(String v) async => (await _p).setString(_kToken, v);
-  static Future<String?> getToken() async => (await _p).getString(_kToken);
+  // --- TOKEN (stored in Android Keystore / iOS Keychain) ---
+  static Future<void> setToken(String v) async => _secure.write(key: _kToken, value: v);
+  static Future<String?> getToken() async => _secure.read(key: _kToken);
 
-  // --- COOKIE ---
-  static Future<void> setCookie(String v) async => (await _p).setString(_kCookie, v);
-  static Future<String?> getCookie() async => (await _p).getString(_kCookie);
+  // --- COOKIE (stored securely) ---
+  static Future<void> setCookie(String v) async => _secure.write(key: _kCookie, value: v);
+  static Future<String?> getCookie() async => _secure.read(key: _kCookie);
 
   static Future<void> clearToken() async {
+    await _secure.delete(key: _kToken);
+    await _secure.delete(key: _kCookie);
     final p = await _p;
-    await p.remove(_kToken);
-    await p.remove(_kCookie);
     await p.remove(_kRole);
     await p.remove(_kDisplayName);
   }
@@ -43,8 +48,6 @@ class Prefs {
   // --- USER DATA ---
   static Future<void> setDisplayName(String v) async => (await _p).setString(_kDisplayName, v);
   static Future<String?> getDisplayName() async => (await _p).getString(_kDisplayName);
-
-  static Future<void> saveRole(String v) async => setRole(v);
 
   static Future<void> setRole(String v) async => (await _p).setString(_kRole, v);
   static Future<String?> getRole() async => (await _p).getString(_kRole);

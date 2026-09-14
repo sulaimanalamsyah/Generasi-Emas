@@ -1,7 +1,9 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart'; // [TAMBAHAN]
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
 import 'api_client.dart';
+import '../app.dart';
+import '../routes.dart';
 
 class FcmService {
   static final FcmService _instance = FcmService._internal();
@@ -11,70 +13,119 @@ class FcmService {
   final _firebaseMessaging = FirebaseMessaging.instance;
   final _api = ApiClient();
 
-  // [TAMBAHAN] Plugin Local Notifications untuk membuat channel & menampilkan notifikasi foreground
+  // Plugin Local Notifications untuk membuat channel & menampilkan notifikasi foreground
   final _localNotifications = FlutterLocalNotificationsPlugin();
 
   Future<void> init() async {
-    // 1. Request Permission
-    await _firebaseMessaging.requestPermission(
-      alert: true, badge: true, sound: true,
-    );
+    try {
+      // 1. Request Permission
+      await _firebaseMessaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
 
-    // [TAMBAHAN] 2. Setup Notification Channel (Wajib untuk Android)
-    const AndroidNotificationChannel channel = AndroidNotificationChannel(
-      'daily_channel_id', // ID harus SAMA dengan yang dikirim backend
-      'Pengingat Harian', // Nama Channel yang muncul di setting HP
-      description: 'Notifikasi rutin harian untuk Ibu & Ayah',
-      importance: Importance.max, // MAX agar muncul pop-up (heads-up)
-      playSound: true,
-    );
+      // 2. Setup Notification Channel (Wajib untuk Android)
+      const AndroidNotificationChannel channel = AndroidNotificationChannel(
+        'daily_channel_id', // ID harus SAMA dengan yang dikirim backend
+        'Pengingat Harian', // Nama Channel yang muncul di setting HP
+        description: 'Notifikasi rutin harian untuk Ibu & Ayah',
+        importance: Importance.max, // MAX agar muncul pop-up (heads-up)
+        playSound: true,
+      );
 
-    // Buat channel di Android
-    await _localNotifications
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
+      // Inisialisasi local notification settings
+      const initializationSettingsAndroid =
+          AndroidInitializationSettings('@mipmap/launcher_icon');
+      const initializationSettings =
+          InitializationSettings(android: initializationSettingsAndroid);
 
-    // 3. Ambil Token & Kirim ke Backend
-    final fcmToken = await _firebaseMessaging.getToken();
-    debugPrint("🔥 FCM Token: $fcmToken");
-    if (fcmToken != null) {
-      await sendCurrentToken();
-    }
+      await _localNotifications.initialize(
+        settings: initializationSettings,
+        onDidReceiveNotificationResponse: (NotificationResponse response) {
+          final payload = response.payload;
+          if (payload != null && payload.isNotEmpty) {
+            _handleNavigation(payload);
+          }
+        },
+      );
 
-    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
-      _sendTokenToBackend(newToken);
-    });
+      // Buat channel di Android
+      await _localNotifications
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(channel);
 
-    // 4. Handle Foreground Notification (Saat aplikasi dibuka)
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      debugPrint('🔔 Pesan Foreground: ${message.notification?.title}');
-
-      // [TAMBAHAN] Tampilkan notifikasi manual saat app sedang dibuka
-      RemoteNotification? notification = message.notification;
-      AndroidNotification? android = message.notification?.android;
-
-      if (notification != null && android != null) {
-        _localNotifications.show(
-          notification.hashCode,
-          notification.title,
-          notification.body,
-          NotificationDetails(
-            android: AndroidNotificationDetails(
-              channel.id,
-              channel.name,
-              channelDescription: channel.description,
-              icon: '@mipmap/ic_launcher', // Pastikan icon ada
-              // Penting agar heads-up notification muncul
-              importance: Importance.max,
-              priority: Priority.high,
-            ),
-          ),
-        );
+      // 3. Ambil Token & Kirim ke Backend
+      final fcmToken = await _firebaseMessaging.getToken();
+      debugPrint("🔥 FCM Token: $fcmToken");
+      if (fcmToken != null) {
+        await sendCurrentToken();
       }
-    });
+
+      FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
+        _sendTokenToBackend(newToken);
+      });
+
+      // 4. Handle Foreground Notification (Saat aplikasi dibuka)
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+        debugPrint('🔔 Pesan Foreground: ${message.notification?.title}');
+
+        RemoteNotification? notification = message.notification;
+        AndroidNotification? android = message.notification?.android;
+        final route = message.data['route'] as String?;
+
+        if (notification != null && android != null) {
+          await _localNotifications.show(
+            id: notification.hashCode,
+            title: notification.title,
+            body: notification.body,
+            payload: route ?? Routes.notifications,
+            notificationDetails: NotificationDetails(
+              android: AndroidNotificationDetails(
+                channel.id,
+                channel.name,
+                channelDescription: channel.description,
+                icon: '@mipmap/launcher_icon',
+                importance: Importance.max,
+                priority: Priority.high,
+              ),
+            ),
+          );
+        }
+      });
+
+      // 5. Handle Background Notification Click (App is running in background)
+      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+        debugPrint('🔔 Pesan Background di-klik: ${message.data}');
+        final route = message.data['route'] as String?;
+        _handleNavigation(route ?? Routes.notifications);
+      });
+
+      // 6. Handle Terminated Notification Click (App is opened from cold state)
+      _firebaseMessaging.getInitialMessage().then((RemoteMessage? message) {
+        if (message != null) {
+          debugPrint('🔔 Pesan Terminated di-klik: ${message.data}');
+          final route = message.data['route'] as String?;
+          Future.delayed(const Duration(milliseconds: 500), () {
+            _handleNavigation(route ?? Routes.notifications);
+          });
+        }
+      });
+    } catch (e) {
+      debugPrint("⚠️ FCM Init Error: $e");
+    }
   }
 
-  // ... (Sisa fungsi sendCurrentToken & _sendTokenToBackend TETAP SAMA) ...
+  void _handleNavigation(String route) {
+    try {
+      debugPrint("🚀 Navigating via Notification Deep Link to: $route");
+      navigatorKey.currentState?.pushNamed(route);
+    } catch (e) {
+      debugPrint("⚠️ Error navigating from notification: $e");
+    }
+  }
+
   Future<void> sendCurrentToken() async {
     try {
       final token = await _firebaseMessaging.getToken();
@@ -95,28 +146,31 @@ class FcmService {
     }
   }
 
-  // [BARU] Aktifkan Notifikasi (Ambil token & Kirim ke Backend)
+  // Aktifkan Notifikasi (Ambil token & Kirim ke Backend)
   Future<void> enableNotifications() async {
     try {
-      // Pastikan izin dulu
-      await _firebaseMessaging.requestPermission(alert: true, badge: true, sound: true);
+      await _firebaseMessaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
 
       final token = await _firebaseMessaging.getToken();
       if (token != null) {
-        await _api.updateFcmToken(token); // Kirim token
+        await _api.updateFcmToken(token);
         debugPrint("✅ Notifikasi Diaktifkan (Token Sent)");
       }
     } catch (e) {
       debugPrint("❌ Gagal enable notif: $e");
-      rethrow; // Lempar error agar UI tahu
+      rethrow;
     }
   }
 
-  // [BARU] Matikan Notifikasi (Kirim null ke Backend)
+  // Matikan Notifikasi (Kirim null ke Backend)
   Future<void> disableNotifications() async {
     try {
-      await _api.updateFcmToken(null); // Hapus token di DB
-      debugPrint("bw Notifikasi Dinonaktifkan (Token Removed)");
+      await _api.updateFcmToken(null);
+      debugPrint("✅ Notifikasi Dinonaktifkan (Token Removed)");
     } catch (e) {
       debugPrint("❌ Gagal disable notif: $e");
       rethrow;

@@ -2,9 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/api_client.dart';
 import '../core/storage.dart';
+import '../routes.dart';
+import '../widgets/common.dart';
 import '../widgets/in_app_viewer_page.dart';
 import '../widgets/loading_overlay.dart';
-
 
 String _fmtDate(dynamic submittedAt) {
   if (submittedAt == null) return '-';
@@ -41,28 +42,33 @@ class _PosttestPageState extends State<PosttestPage> {
     _load();
   }
 
-  // Helper Skor Terakhir (Max N)
-  Map<String, dynamic>? _getLastScore(String type) {
-    Map<String, dynamic>? lastData;
-    int maxN = 0;
+  // Helper Hitung Skor Rata-Rata per Kategori (CO_PARTNER / PSS_NICU)
+  Map<String, dynamic> _getAverageScoreData(String type) {
+    double totalScore = 0;
+    int count = 0;
 
     for (final item in _items) {
-      final n = item['n'] as int;
       final data = (type == 'CO_PARTNER') ? item['coPartner'] : item['pssNicu'];
 
       if (data != null && data is Map) {
-        final hasScore = data['score'] != null;
-        final hasDate = data['doneAt'] != null || data['submittedAt'] != null;
-
-        if (hasScore || hasDate) {
-          if (n > maxN) {
-            maxN = n;
-            lastData = Map<String, dynamic>.from(data);
+        final rawScore = data['score'];
+        if (rawScore != null) {
+          final parsed = double.tryParse(rawScore.toString());
+          if (parsed != null) {
+            totalScore += parsed;
+            count++;
           }
         }
       }
     }
-    return lastData;
+
+    if (count == 0) {
+      return {'avg': '-', 'count': 0};
+    }
+
+    final avg = totalScore / count;
+    final formattedAvg = (avg % 1 == 0) ? avg.toInt().toString() : avg.toStringAsFixed(1);
+    return {'avg': formattedAvg, 'count': count};
   }
 
   Future<void> _load() async {
@@ -111,7 +117,17 @@ class _PosttestPageState extends State<PosttestPage> {
 
   void _handleOpenForm(String title, String url) {
     if (url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Link form ini belum diatur.")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            "Link form ini belum diatur.",
+            style: TextStyle(fontFamily: 'Inter'),
+          ),
+          backgroundColor: const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
       return;
     }
 
@@ -119,9 +135,24 @@ class _PosttestPageState extends State<PosttestPage> {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Info untuk Ayah'),
-          content: const Text('Pengisian dilakukan oleh Ibu. Ayah hanya sebagai pemantau.'),
-          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Oke'))],
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text(
+            'Info untuk Ayah',
+            style: TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+          ),
+          content: const Text(
+            'Pengisian dilakukan oleh Ibu. Ayah hanya sebagai pemantau.',
+            style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF334155)),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text(
+                'Oke',
+                style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+              ),
+            )
+          ],
         ),
       );
       return;
@@ -135,30 +166,64 @@ class _PosttestPageState extends State<PosttestPage> {
     ).then((_) => _load());
   }
 
-  Widget _summaryCard(String title, String type, Color color) {
-    final lastData = _getLastScore(type);
-    final score = lastData?['score'];
-    final date = lastData?['doneAt'] ?? lastData?['submittedAt'];
+  Widget _summaryCard(String title, String type, Color scoreColor, Color bgContainer) {
+    final avgData = _getAverageScoreData(type);
+    final String avgScore = avgData['avg'] as String;
+    final int count = avgData['count'] as int;
 
-    return Card(
-      color: color,
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey.shade800)),
+            Text(
+              title,
+              style: const TextStyle(
+                fontFamily: 'Nunito',
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+                color: Color(0xFF475569),
+              ),
+            ),
             const SizedBox(height: 8),
             Text(
-                '${score ?? '-'}',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 24)
+              avgScore,
+              style: TextStyle(
+                fontFamily: 'Nunito',
+                fontWeight: FontWeight.w800,
+                fontSize: 26,
+                color: scoreColor,
+              ),
             ),
-            const SizedBox(height: 4),
-            Text(
-                date != null ? _fmtDate(date).split(' ')[0] : 'Belum ada',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade700)
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: bgContainer,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                count > 0 ? '$count evaluasi selesai' : 'Belum ada data',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: scoreColor,
+                ),
+              ),
             ),
           ],
         ),
@@ -171,26 +236,62 @@ class _PosttestPageState extends State<PosttestPage> {
     final score = data?['score'];
 
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
-      title: Text(label, style: const TextStyle(fontSize: 14)),
-      leading: Icon(
-        isDone ? Icons.check_circle : Icons.radio_button_unchecked,
-        color: isDone ? Colors.teal : Colors.grey,
-        size: 20,
-      ),
-      trailing: isDone
-          ? Text(
-          score != null ? 'Skor: $score' : 'Selesai',
-          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal)
-      )
-          : SizedBox(
-        height: 32,
-        child: FilledButton.tonal(
-          onPressed: onTap,
-          style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16)),
-          child: const Text('Isi', style: TextStyle(fontSize: 12)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      title: Text(
+        label,
+        style: const TextStyle(
+          fontFamily: 'Nunito',
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF0F172A),
         ),
       ),
+      leading: Icon(
+        isDone ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+        color: isDone ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+        size: 22,
+      ),
+      trailing: isDone
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFD1FAE5),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: const Color(0xFFA7F3D0)),
+              ),
+              child: Text(
+                score != null ? 'Skor: $score' : 'Selesai',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF064E3B),
+                ),
+              ),
+            )
+          : SizedBox(
+              height: 38,
+              child: ElevatedButton(
+                onPressed: onTap,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF10B981),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                ),
+                child: const Text(
+                  'Isi',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
       onTap: isDone ? null : onTap,
     );
   }
@@ -200,172 +301,311 @@ class _PosttestPageState extends State<PosttestPage> {
     final bool isEmpty = !loading && _items.isEmpty;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Post Test')),
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: evaluationAppBar(
+        context: context,
+        title: 'Post Test',
+        onRefresh: _load,
+      ),
       body: loading
           ? const LoadingOverlay(message: "Sinkronisasi Hasil Posttest...")
           : RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            if (isFather)
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blue.shade200),
-                ),
-                child: const Row(children: [
-                  Icon(Icons.info, color: Colors.blue),
-                  SizedBox(width: 8),
-                  Expanded(
-                      child: Text(
-                        'Ayah hanya sebagai pemantau, Pengisian dilakukan oleh Ibu.',
-                        style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
-                      )
-                  ),
-                ]),
-              ),
-
-            if (isEmpty)
-              const Padding(
-                padding: EdgeInsets.only(top: 100),
-                child: Center(
-                  child: Column(
-                    children: [
-                      Icon(Icons.pending_actions, size: 64, color: Colors.grey),
-                      SizedBox(height: 16),
-                      Text(
-                        "Jadwal Post Test akan muncul setelah data Pre Test Anda terverifikasi oleh sistem. Silakan cek kembali nanti.",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey, fontSize: 16),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-            if (!isEmpty) ...[
-              const Text(
-                'Ringkasan Nilai Terakhir',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-              const SizedBox(height: 12),
-
-              Row(
+              onRefresh: _load,
+              color: const Color(0xFF10B981),
+              child: ListView(
+                padding: const EdgeInsets.all(20),
                 children: [
-                  Expanded(child: _summaryCard('CO Partner', 'CO_PARTNER', Colors.teal.shade50)),
-                  const SizedBox(width: 12),
-                  Expanded(child: _summaryCard('PSS:NICU', 'PSS_NICU', Colors.orange.shade50)),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-              const Text(
-                'Daftar Evaluasi',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-              const Padding(
-                padding: EdgeInsets.only(bottom: 12, top: 4),
-                child: Text(
-                  'Kerjakan secara berurutan sesuai jadwal.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ),
-
-              ..._items.map((item) {
-                final n = item['n'] as int;
-                final dueAtStr = item['dueAt']?.toString() ?? DateTime.now().toIso8601String();
-                final dueAt = DateTime.parse(dueAtStr).toLocal();
-                final now = DateTime.now();
-
-                final isLockedTime = now.isBefore(dueAt);
-                bool isLockedSeq = false;
-                if (n > 1) {
-                  try {
-                    final prevItem = _items.firstWhere((e) => e['n'] == n - 1);
-                    final prevCo = prevItem['coPartner'];
-                    final prevPss = prevItem['pssNicu'];
-                    if (prevCo == null || prevPss == null) {
-                      isLockedSeq = true;
-                    }
-                  } catch (_) {}
-                }
-
-                final isLocked = isLockedTime || isLockedSeq;
-
-                final isCompleted = item['coPartner'] != null && item['pssNicu'] != null;
-
-                final urlCo = (n - 1 < _postCoLinks.length) ? _postCoLinks[n - 1] : '';
-                final urlPss = (n - 1 < _postPssLinks.length) ? _postPssLinks[n - 1] : '';
-
-                return Card(
-                  clipBehavior: Clip.antiAlias,
-                  color: isLocked ? Colors.grey.shade100 : Colors.white,
-                  elevation: isLocked ? 0 : 2,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: isCompleted
-                          ? BorderSide(color: Colors.teal.withValues(alpha: 0.5), width: 1)
-                          : BorderSide.none
-                  ),
-                  child: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        color: isCompleted ? Colors.teal.shade50 : (isLocked ? Colors.grey.shade200 : Colors.white),
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 12,
-                              backgroundColor: isLocked ? Colors.grey : (isCompleted ? Colors.teal : Colors.blue),
-                              child: Text('$n', style: const TextStyle(fontSize: 12, color: Colors.white)),
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                                'Evaluasi Ke-$n',
-                                style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: isLocked ? Colors.grey : Colors.black87
-                                )
-                            ),
-                            const Spacer(),
-                            if (isLocked)
-                              const Icon(Icons.lock, size: 16, color: Colors.grey)
-                            else if (isCompleted)
-                              const Icon(Icons.check_circle, size: 20, color: Colors.teal)
-                          ],
-                        ),
+                  if (isFather)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE0F2FE),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFBAE6FD)),
                       ),
-                      if (isLocked)
-                        Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Text(
-                            isLockedTime
-                                ? 'Tersedia mulai: ${_fmtDate(dueAt)}'
-                                : 'Selesaikan evaluasi sebelumnya terlebih dahulu.',
-                            style: const TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.info_outline_rounded, color: Color(0xFF0284C7), size: 22),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Ayah hanya sebagai pemantau, Pengisian dilakukan oleh Ibu.',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF072846),
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  // [PREREQUISITE GUARD] Locked Pretest Uncompleted View
+                  if (isEmpty)
+                    Container(
+                      margin: const EdgeInsets.only(top: 20),
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFFBEB),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: const Color(0xFFFDE68A)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 64,
+                            height: 64,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFFEF3C7),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.lock_clock_rounded,
+                              size: 32,
+                              color: Color(0xFFD97706),
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          const Text(
+                            "Pretest Belum Selesai",
+                            style: TextStyle(
+                              fontFamily: 'Nunito',
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF78350F),
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 10),
+                          const Text(
+                            "Jadwal Post Test akan muncul setelah data Pre Test Anda diselesaikan dan terverifikasi oleh sistem. Silakan kerjakan Pretest terlebih dahulu.",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 14,
+                              height: 1.5,
+                              color: Color(0xFF92400E),
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.pushNamed(context, Routes.pretest);
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF10B981),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              icon: const Icon(Icons.assignment_turned_in_rounded, size: 20),
+                              label: const Text(
+                                "Kerjakan Pretest Sekarang",
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  // [ACTIVE POSTTEST] Active Evaluation Cards & Summary Scores
+                  if (!isEmpty) ...[
+                    const Text(
+                      'Ringkasan Rata-Rata Nilai',
+                      style: TextStyle(
+                        fontFamily: 'Nunito',
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _summaryCard(
+                            'CO Partner',
+                            'CO_PARTNER',
+                            const Color(0xFF10B981),
+                            const Color(0xFFD1FAE5),
                           ),
                         ),
-                      if (!isLocked) ...[
-                        const Divider(height: 1, thickness: 0.5),
-                        _subItem('CO Partner', item['coPartner'], () => _handleOpenForm('Evaluasi $n: CO Partner', urlCo)),
-                        const Divider(height: 1, indent: 16, endIndent: 16, thickness: 0.5),
-                        _subItem('PSS NICU', item['pssNicu'], () => _handleOpenForm('Evaluasi $n: PSS NICU', urlPss)),
-                        const SizedBox(height: 8),
-                      ]
-                    ],
-                  ),
-                );
-              }),
-            ],
-            const SizedBox(height: 40),
-          ],
-        ),
-      ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _summaryCard(
+                            'PSS:NICU',
+                            'PSS_NICU',
+                            const Color(0xFF0EA5E9),
+                            const Color(0xFFE0F2FE),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Daftar Evaluasi',
+                      style: TextStyle(
+                        fontFamily: 'Nunito',
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 14, top: 4),
+                      child: Text(
+                        'Kerjakan secara berurutan sesuai jadwal.',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                    ),
+
+                    ..._items.map((item) {
+                      final n = item['n'] as int;
+                      final dueAtStr = item['dueAt']?.toString() ?? DateTime.now().toIso8601String();
+                      final dueAt = DateTime.parse(dueAtStr).toLocal();
+                      final now = DateTime.now();
+
+                      final isLockedTime = now.isBefore(dueAt);
+                      bool isLockedSeq = false;
+                      if (n > 1) {
+                        try {
+                          final prevItem = _items.firstWhere((e) => e['n'] == n - 1);
+                          final prevCo = prevItem['coPartner'];
+                          final prevPss = prevItem['pssNicu'];
+                          if (prevCo == null || prevPss == null) {
+                            isLockedSeq = true;
+                          }
+                        } catch (_) {}
+                      }
+
+                      final isLocked = isLockedTime || isLockedSeq;
+                      final isCompleted = item['coPartner'] != null && item['pssNicu'] != null;
+
+                      final urlCo = (n - 1 < _postCoLinks.length) ? _postCoLinks[n - 1] : '';
+                      final urlPss = (n - 1 < _postPssLinks.length) ? _postPssLinks[n - 1] : '';
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: isLocked ? const Color(0xFFF1F5F9) : Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isCompleted
+                                ? const Color(0xFFA7F3D0)
+                                : (isLocked ? const Color(0xFFE2E8F0) : const Color(0xFFCBD5E1)),
+                          ),
+                          boxShadow: [
+                            if (!isLocked)
+                              BoxShadow(
+                                color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+                                blurRadius: 10,
+                                offset: const Offset(0, 3),
+                              ),
+                          ],
+                        ),
+                        child: Column(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              decoration: BoxDecoration(
+                                color: isCompleted
+                                    ? const Color(0xFFECFDF5)
+                                    : (isLocked ? const Color(0xFFF1F5F9) : Colors.white),
+                                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                              ),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 13,
+                                    backgroundColor: isLocked
+                                        ? const Color(0xFF94A3B8)
+                                        : (isCompleted ? const Color(0xFF10B981) : const Color(0xFF0EA5E9)),
+                                    child: Text(
+                                      '$n',
+                                      style: const TextStyle(
+                                        fontFamily: 'Inter',
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    'Evaluasi Ke-$n',
+                                    style: TextStyle(
+                                      fontFamily: 'Nunito',
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                      color: isLocked ? const Color(0xFF94A3B8) : const Color(0xFF0F172A),
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  if (isLocked)
+                                    const Icon(Icons.lock_rounded, size: 18, color: Color(0xFF94A3B8))
+                                  else if (isCompleted)
+                                    const Icon(Icons.check_circle_rounded, size: 20, color: Color(0xFF10B981))
+                                ],
+                              ),
+                            ),
+                            if (isLocked)
+                              Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Text(
+                                  isLockedTime
+                                      ? 'Tersedia mulai: ${_fmtDate(dueAt)}'
+                                      : 'Selesaikan evaluasi sebelumnya terlebih dahulu.',
+                                  style: const TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 13,
+                                    color: Color(0xFF64748B),
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ),
+                            if (!isLocked) ...[
+                              const Divider(height: 1, thickness: 0.5, color: Color(0xFFE2E8F0)),
+                              _subItem('CO Partner', item['coPartner'], () => _handleOpenForm('Evaluasi $n: CO Partner', urlCo)),
+                              const Divider(height: 1, indent: 16, endIndent: 16, thickness: 0.5, color: Color(0xFFE2E8F0)),
+                              _subItem('PSS NICU', item['pssNicu'], () => _handleOpenForm('Evaluasi $n: PSS NICU', urlPss)),
+                              const SizedBox(height: 8),
+                            ]
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
+                  const SizedBox(height: 30),
+                ],
+              ),
+            ),
     );
   }
-}
+}

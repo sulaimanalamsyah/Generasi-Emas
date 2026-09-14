@@ -9,14 +9,18 @@ import 'pages/forgot_password_page.dart';
 import 'pages/reset_password_page.dart';
 import 'pages/pretest_page.dart';
 import 'pages/brainstorming_page.dart';
+import 'pages/video_page.dart';
+import 'pages/video_detail_page.dart';
 import 'pages/quiz_page.dart';
 import 'pages/logbook_page.dart';
 import 'pages/notifications_page.dart';
 import 'pages/baby_journal_page.dart';
 import 'pages/posttest_page.dart';
 import 'pages/references_page.dart';
+import 'pages/reference_detail_page.dart';
 import 'pages/contact_researchers_page.dart';
 import 'pages/modules_page.dart';
+import 'pages/module_detail_page.dart';
 import 'pages/profile_page.dart';
 import 'pages/nurse/folder_nurse_page.dart';
 import 'pages/nurse/brainstorming_nurse_page.dart';
@@ -28,6 +32,7 @@ import 'shells/nurse_shell_4.dart';
 import 'pages/profile_mother_detail_page.dart';
 import 'pages/profile_infant_detail_page.dart';
 import 'pages/father_link_page.dart';
+import 'pages/guide_page.dart';
 
 // [BARU] Import Privacy Policy Page
 import 'pages/privacy_policy_page.dart';
@@ -46,6 +51,9 @@ class Routes {
   // [BARU] Privacy Policy Route
   static const privacyPolicy = '/privacy-policy';
 
+  // [BARU] Guide / Panduan Route
+  static const guide = '/guide';
+
   static const activate = '/activate';
   static const login = '/login';
   static const forgot = '/forgot';
@@ -53,14 +61,18 @@ class Routes {
   static const homePatient = '/homePatient';
   static const pretest = '/pretest';
   static const brainstorming = '/brainstorming';
+  static const video = '/video';
+  static const videoDetail = '/video/detail';
   static const quiz = '/quiz';
   static const logbook = '/logbook';
   static const notifications = '/notifications';
   static const babyJournal = '/babyJournal';
   static const posttest = '/posttest';
   static const references = '/references';
+  static const referenceDetail = '/references/detail';
   static const contactResearchers = '/contactResearchers';
   static const modules = '/modules';
+  static const moduleDetail = '/modules/detail';
   static const profile = '/profile';
   static const profileMotherDetail = '/profile/mother-detail';
   static const profileInfantDetail = '/profile/infant-detail';
@@ -103,7 +115,10 @@ class Routes {
         return MaterialPageRoute(builder: (_) => const PrivacyPolicyPage());
 
       case activate:
-        return MaterialPageRoute(builder: (_) => const ActivatePage());
+        return MaterialPageRoute(
+          builder: (_) => const ActivatePage(),
+          settings: s,
+        );
 
       case login:
         return MaterialPageRoute(builder: (_) => const LoginPage(), settings: s);
@@ -133,7 +148,18 @@ class Routes {
         return MaterialPageRoute(builder: (_) => const PretestPage());
 
       case brainstorming:
-        return MaterialPageRoute(builder: (_) => const BrainstormingPage());
+      case video:
+        return MaterialPageRoute(builder: (_) => const VideoPage());
+
+      case videoDetail:
+        final args = s.arguments;
+        if (args is VideoDetailArguments) {
+          return MaterialPageRoute(
+            builder: (_) => VideoDetailPage(args: args),
+            settings: s,
+          );
+        }
+        return MaterialPageRoute(builder: (_) => const VideoPage(), settings: s);
 
       case quiz:
         return MaterialPageRoute(builder: (_) => const QuizPage());
@@ -151,10 +177,39 @@ class Routes {
         return MaterialPageRoute(builder: (_) => const PosttestPage());
 
       case references:
-        return MaterialPageRoute(builder: (_) => const ReferencesPage());
+        return MaterialPageRoute(builder: (_) => const ReferencesPage(), settings: s);
+
+      case referenceDetail:
+        final args = s.arguments;
+        if (args is ReferenceDetailArguments) {
+          return MaterialPageRoute(
+            builder: (_) => ReferenceDetailPage(args: args),
+            settings: s,
+          );
+        }
+        return MaterialPageRoute(builder: (_) => const ReferencesPage(), settings: s);
 
       case modules:
         return MaterialPageRoute(builder: (_) => const ModulesPage(), settings: s);
+
+      case moduleDetail:
+        final args = s.arguments;
+        if (args is ModuleDetailArguments) {
+          return MaterialPageRoute(
+            builder: (_) => ModuleDetailPage(args: args),
+            settings: s,
+          );
+        }
+        return MaterialPageRoute(builder: (_) => const ModulesPage(), settings: s);
+
+      case guide:
+        final idx = (s.arguments is Map && (s.arguments as Map)['roleIndex'] is int)
+            ? (s.arguments as Map)['roleIndex'] as int
+            : 0;
+        return MaterialPageRoute(
+          builder: (_) => GuidePage(initialRoleIndex: idx),
+          settings: s,
+        );
 
       case contactResearchers:
         return MaterialPageRoute(builder: (_) => const ContactResearchersPage(), settings: s);

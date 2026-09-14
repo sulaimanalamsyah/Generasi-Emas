@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../services/api_client.dart';
 
@@ -172,17 +173,34 @@ class _PatientDetailPageState extends State<PatientDetailPage>
 
   Future<void> _syncAndRefreshScores() async {
     if (_isSyncingScores) return;
-
     setState(() => _isSyncingScores = true);
 
     try {
-      await _api.nurseSyncScores();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Sinkronisasi data Google Sheets berhasil!")),
+      final res = await _api.nurseSyncScores().timeout(
+        const Duration(seconds: 25),
+        onTimeout: () {
+          return {'timeout': true, 'message': 'Proses sinkronisasi berjalan di latar belakang.'};
+        },
       );
-      await _loadDetail();
 
+      if (!mounted) return;
+
+      if (res['timeout'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Sinkronisasi sedang diproses di server Google Sheets..."),
+            backgroundColor: Color(0xFF0EA5E9),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Sinkronisasi data Google Sheets berhasil!"),
+            backgroundColor: Color(0xFF10B981),
+          ),
+        );
+      }
+      await _loadDetail();
     } catch (e) {
       if (!mounted) return;
       String msg = "$e";
@@ -190,7 +208,10 @@ class _PatientDetailPageState extends State<PatientDetailPage>
         msg = "Gagal koneksi. Pastikan internet lancar.";
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Gagal Sync: $msg"), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text("Gagal Sync: $msg"),
+          backgroundColor: const Color(0xFFEF4444),
+        ),
       );
     } finally {
       if (mounted) setState(() => _isSyncingScores = false);
@@ -200,19 +221,34 @@ class _PatientDetailPageState extends State<PatientDetailPage>
   Future<void> _unassign() async {
     if (patientId.isEmpty) return;
     final ok = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Lepas Pasien?'),
-          content: const Text('Pasien ini akan dihapus dari daftar binaan Anda.'),
-          actions: [
-            TextButton(onPressed: ()=>Navigator.pop(ctx, false), child: const Text('Batal')),
-            FilledButton(
-                style: FilledButton.styleFrom(backgroundColor: Colors.red),
-                onPressed: ()=>Navigator.pop(ctx, true),
-                child: const Text('Lepas')
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Lepas Pasien?',
+          style: TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+        ),
+        content: const Text(
+          'Pasien ini akan dihapus dari daftar binaan Anda.',
+          style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF475569)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
-          ],
-        )
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Lepas', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
     ) ?? false;
 
     if (!ok) return;
@@ -229,12 +265,18 @@ class _PatientDetailPageState extends State<PatientDetailPage>
       }
 
       showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text("Gagal"),
-            content: Text(msg),
-            actions: [TextButton(onPressed: ()=>Navigator.pop(ctx), child: const Text("OK"))],
-          )
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text("Gagal", style: TextStyle(fontFamily: 'Nunito', color: Color(0xFFEF4444))),
+          content: Text(msg, style: const TextStyle(fontFamily: 'Inter')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("OK", style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
       );
     }
   }
@@ -275,13 +317,164 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     return def;
   }
 
-  Widget _sectionTitle(String s) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-    child: Text(
-      s,
-      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-    ),
-  );
+  Widget _buildPatientHeaderCard() {
+    final rootName = _safeStr(_detail?['name'], 'Ibu');
+    final phone = _safeStr(_detail?['phone'], '');
+    final prof = (_detail?['profile'] as Map?)?.cast<String, dynamic>() ?? {};
+    final infant = (prof['infant'] as Map?)?.cast<String, dynamic>() ?? {};
+
+    String babyName = _safeStr(_detail?['infantName'], '');
+    if (babyName.isEmpty || babyName == '-') {
+      babyName = _safeStr(prof['babyName'], '');
+    }
+    if (babyName.isEmpty || babyName == '-') {
+      babyName = _safeStr(infant['name'], 'Bayi');
+    }
+
+    final mdx = _safeStr(infant['medicalDiagnosis'], '');
+    final isDone = infant['dischargeDate'] != null && infant['dischargeDate'].toString().trim().isNotEmpty;
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F0F172A),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // Avatar Circle
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD1FAE5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: Text(
+                    babyName.isNotEmpty ? babyName[0].toUpperCase() : 'B',
+                    style: const TextStyle(
+                      fontFamily: 'Nunito',
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF10B981),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+
+              // Patient Header Info
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      rootName,
+                      style: const TextStyle(
+                        fontFamily: 'Nunito',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0F172A),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE0F2FE),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.child_care_rounded, size: 13, color: Color(0xFF072846)),
+                          const SizedBox(width: 4),
+                          Text(
+                            babyName,
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF072846),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // Treatment Status Chip
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: isDone ? const Color(0xFFFEF3C7) : const Color(0xFFD1FAE5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  isDone ? 'Selesai' : 'Perawatan',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: isDone ? const Color(0xFF78350F) : const Color(0xFF064E3B),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (phone.isNotEmpty || mdx.isNotEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Divider(color: Color(0xFFF1F5F9), height: 1),
+            ),
+            Row(
+              children: [
+                if (phone.isNotEmpty) ...[
+                  const Icon(Icons.phone_android_rounded, size: 14, color: Color(0xFF475569)),
+                  const SizedBox(width: 4),
+                  Text(
+                    phone,
+                    style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF475569)),
+                  ),
+                  const SizedBox(width: 14),
+                ],
+                if (mdx.isNotEmpty) ...[
+                  const Icon(Icons.medical_information_rounded, size: 14, color: Color(0xFF0EA5E9)),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      mdx,
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF0EA5E9)),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 
   /* ======================== BUILD ======================== */
 
@@ -289,58 +482,97 @@ class _PatientDetailPageState extends State<PatientDetailPage>
   Widget build(BuildContext context) {
     if (_tabCtrl == null) {
       return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+        backgroundColor: Color(0xFFF8FAFC),
+        body: Center(child: CircularProgressIndicator(color: Color(0xFF10B981))),
       );
     }
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text('Detail Pasien'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          'Detail Pasien',
+          style: TextStyle(
+            fontFamily: 'Nunito',
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF0F172A),
+          ),
+        ),
         actions: [
           if (!_loadingDetail && _errorDetail == null)
             IconButton(
-              icon: const Icon(Icons.person_remove, color: Colors.red),
+              icon: const Icon(Icons.person_remove_rounded, color: Color(0xFFEF4444)),
               onPressed: _unassign,
               tooltip: "Lepas Pasien",
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
             )
         ],
-        bottom: TabBar(
-          controller: _tabCtrl,
-          isScrollable: false,
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            if (!_loadingDetail && _errorDetail == null && _detail != null)
+              _buildPatientHeaderCard(),
 
-          labelColor: Theme.of(context).primaryColor,
-          unselectedLabelColor: Colors.grey,
-          indicatorSize: TabBarIndicatorSize.tab,
+            // TabBar Container
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: TabBar(
+                controller: _tabCtrl,
+                isScrollable: false,
+                indicatorColor: const Color(0xFF10B981),
+                labelColor: const Color(0xFF10B981),
+                unselectedLabelColor: const Color(0xFF64748B),
+                labelStyle: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 13),
+                unselectedLabelStyle: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w500, fontSize: 13),
+                onTap: (i) {
+                  if (_errorDetail != null || patientId.isEmpty) return;
+                  if (i == 0) _loadLogbook();
+                  if (i == 1) _loadJournal();
+                },
+                tabs: const [
+                  Tab(text: 'Logbook'),
+                  Tab(text: 'Jurnal'),
+                  Tab(text: 'Evaluasi'),
+                  Tab(text: 'Data Ibu'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
 
-          onTap: (i) {
-            if (_errorDetail != null || patientId.isEmpty) return;
-            if (i == 0) _loadLogbook();
-            if (i == 1) _loadJournal();
-          },
-          tabs: const [
-            Tab(child: Text('Logbook', overflow: TextOverflow.ellipsis)),
-            Tab(child: Text('Jurnal', overflow: TextOverflow.ellipsis)),
-            Tab(child: Text('Evaluasi', overflow: TextOverflow.ellipsis)),
-            Tab(child: Text('Data Ibu', overflow: TextOverflow.ellipsis)),
+            Expanded(
+              child: _loadingDetail
+                  ? const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)))
+                  : (_errorDetail != null
+                      ? _ErrView(
+                          message: _errorDetail!,
+                          onRetry: _loadDetail,
+                        )
+                      : TabBarView(
+                          controller: _tabCtrl,
+                          children: [
+                            _buildLogbookTab(),
+                            _buildJournalTab(),
+                            _buildScoreTab(),
+                            _buildProfileTab(),
+                          ],
+                        )),
+            ),
           ],
         ),
       ),
-      body: _loadingDetail
-          ? const Center(child: CircularProgressIndicator())
-          : (_errorDetail != null
-          ? _ErrView(
-        message: _errorDetail!,
-        onRetry: _loadDetail,
-      )
-          : TabBarView(
-        controller: _tabCtrl,
-        children: [
-          _buildLogbookTab(),
-          _buildJournalTab(),
-          _buildScoreTab(),
-          _buildProfileTab(),
-        ],
-      )),
     );
   }
 
@@ -352,7 +584,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     }
 
     if (_loadingLogbook) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
     }
     if (_errorLogbook != null) {
       return _ErrView(message: _errorLogbook!, onRetry: _loadLogbook);
@@ -360,7 +592,22 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     final items = _logbooks ?? const <Map<String, dynamic>>[];
 
     if (items.isEmpty) {
-      return const Center(child: Text('Belum ada isian logbook.'));
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: const [
+              Icon(Icons.edit_note_rounded, size: 48, color: Color(0xFF94A3B8)),
+              SizedBox(height: 12),
+              Text(
+                'Belum Ada Isian Logbook',
+                style: TextStyle(fontFamily: 'Nunito', fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     return RefreshIndicator(
@@ -368,8 +615,9 @@ class _PatientDetailPageState extends State<PatientDetailPage>
         _logbooks = null;
         await _loadLogbook();
       },
+      color: const Color(0xFF10B981),
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         itemCount: items.length,
         itemBuilder: (_, i) {
           final it = items[i];
@@ -378,31 +626,57 @@ class _PatientDetailPageState extends State<PatientDetailPage>
           final ok = _safeBool(it['coTargetMet']);
           final note = _safeStr(it['note'], '');
 
-          return Card(
-            elevation: 0,
+          return Container(
             margin: const EdgeInsets.only(bottom: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: Theme.of(context).dividerColor),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: const [
+                BoxShadow(color: Color(0x0F0F172A), blurRadius: 8, offset: Offset(0, 2)),
+              ],
             ),
             child: Padding(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(date, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _MiniPill('Durasi: ${dur ?? '-'} mnt'),
-                      _MiniPill(ok ? 'Target tercapai' : 'Target belum'),
+                      Text(
+                        date,
+                        style: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 16, color: Color(0xFF0F172A)),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: ok ? const Color(0xFFD1FAE5) : const Color(0xFFFEF3C7),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          ok ? 'Target Tercapai' : 'Target Belum',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: ok ? const Color(0xFF064E3B) : const Color(0xFF78350F),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Durasi: ${dur ?? '-'} menit',
+                    style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Color(0xFF475569)),
+                  ),
                   if (note.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text(note),
+                    const SizedBox(height: 6),
+                    Text(
+                      note,
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Color(0xFF0F172A)),
+                    ),
                   ],
                 ],
               ),
@@ -419,7 +693,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     }
 
     if (_loadingJournal) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
     }
     if (_errorJournal != null) {
       return _ErrView(message: _errorJournal!, onRetry: _loadJournal);
@@ -427,7 +701,22 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     final items = _journals ?? const <Map<String, dynamic>>[];
 
     if (items.isEmpty) {
-      return const Center(child: Text('Belum ada jurnal bayi.'));
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: const [
+              Icon(Icons.menu_book_rounded, size: 48, color: Color(0xFF94A3B8)),
+              SizedBox(height: 12),
+              Text(
+                'Belum Ada Jurnal Bayi',
+                style: TextStyle(fontFamily: 'Nunito', fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     return RefreshIndicator(
@@ -435,27 +724,43 @@ class _PatientDetailPageState extends State<PatientDetailPage>
         _journals = null;
         await _loadJournal();
       },
+      color: const Color(0xFF10B981),
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         itemCount: items.length,
         itemBuilder: (_, i) {
           final it = items[i];
           final date = _fmtDate(it['date']);
           final sum = _safeStr(it['summary'], '');
 
-          return Card(
-            elevation: 0,
+          return Container(
             margin: const EdgeInsets.only(bottom: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: Theme.of(context).dividerColor),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: const [
+                BoxShadow(color: Color(0x0F0F172A), blurRadius: 8, offset: Offset(0, 2)),
+              ],
             ),
-            child: ListTile(
-              title: Text(
-                date,
-                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    date,
+                    style: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 16, color: Color(0xFF0F172A)),
+                  ),
+                  if (sum.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      sum,
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Color(0xFF475569)),
+                    ),
+                  ],
+                ],
               ),
-              subtitle: sum.isEmpty ? null : Text(sum),
             ),
           );
         },
@@ -465,33 +770,62 @@ class _PatientDetailPageState extends State<PatientDetailPage>
 
   Widget _buildScoreTab() {
     final scoresRaw = (_detail?['evaluationScores'] as List?) ?? [];
-
     final scores = scoresRaw.map((e) => (e as Map).cast<String, dynamic>()).toList();
 
     return Column(
       children: [
+        // Sync Header Box
         Container(
+          margin: const EdgeInsets.fromLTRB(20, 8, 20, 12),
           padding: const EdgeInsets.all(16),
-          color: Theme.of(context).colorScheme.surfaceContainer,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+            boxShadow: const [
+              BoxShadow(color: Color(0x0F0F172A), blurRadius: 8, offset: Offset(0, 2)),
+            ],
+          ),
           child: Row(
             children: [
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: const [
-                    Text("Sinkronisasi Data", style: TextStyle(fontWeight: FontWeight.bold)),
-                    Text("Tarik nilai terbaru dari Google Sheets", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                    Text(
+                      "Sinkronisasi Data Evaluasi",
+                      style: TextStyle(fontFamily: 'Nunito', fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      "Tarik nilai terbaru dari Google Sheets",
+                      style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF64748B)),
+                    ),
                   ],
                 ),
               ),
-              if (_isSyncingScores)
-                const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-              else
-                FilledButton.icon(
-                  onPressed: _syncAndRefreshScores,
-                  icon: const Icon(Icons.sync),
-                  label: const Text("Sync"),
-                )
+              const SizedBox(width: 12),
+              SizedBox(
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: _isSyncingScores ? null : _syncAndRefreshScores,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                  ),
+                  icon: _isSyncingScores
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : const Icon(Icons.sync_rounded, size: 18),
+                  label: const Text('Sync', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+                ),
+              ),
             ],
           ),
         ),
@@ -499,53 +833,110 @@ class _PatientDetailPageState extends State<PatientDetailPage>
         Expanded(
           child: scores.isEmpty
               ? Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: const [
-                Icon(Icons.assignment_outlined, size: 48, color: Colors.grey),
-                SizedBox(height: 12),
-                Text("Belum ada data nilai evaluasi."),
-              ],
-            ),
-          )
-              : ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: scores.length,
-            itemBuilder: (context, index) {
-              final item = scores[index];
-              final label = _safeStr(item['label'], 'Evaluasi');
-              final cat = _safeStr(item['category'], 'Umum');
-              final val = _safeInt(item['score']);
-              final date = _fmtDate(item['updatedAt'] ?? item['createdAt']);
-
-              Color badgeColor = Colors.red;
-              if (val >= 80) {
-                badgeColor = Colors.green;
-              } else if (val >= 60) {
-                badgeColor = Colors.orange;
-              }
-
-              return Card(
-                elevation: 0,
-                margin: const EdgeInsets.only(bottom: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: BorderSide(color: Theme.of(context).dividerColor),
-                ),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: badgeColor,
-                    child: Text(
-                      "$val",
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        Icon(Icons.assignment_outlined, size: 48, color: Color(0xFF94A3B8)),
+                        SizedBox(height: 12),
+                        Text(
+                          "Belum Ada Data Nilai Evaluasi",
+                          style: TextStyle(fontFamily: 'Nunito', fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                        ),
+                      ],
                     ),
                   ),
-                  title: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text("$cat • $date"),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                  itemCount: scores.length,
+                  itemBuilder: (context, index) {
+                    final item = scores[index];
+                    final label = _safeStr(item['label'], 'Evaluasi');
+                    final cat = _safeStr(item['category'], 'Umum');
+                    final val = _safeInt(item['score']);
+                    final date = _fmtDate(item['updatedAt'] ?? item['createdAt']);
+
+                    Color bgPill = const Color(0xFFFEE2E2);
+                    Color fgPill = const Color(0xFF991B1B);
+
+                    if (val >= 80) {
+                      bgPill = const Color(0xFFD1FAE5);
+                      fgPill = const Color(0xFF064E3B);
+                    } else if (val >= 60) {
+                      bgPill = const Color(0xFFFEF3C7);
+                      fgPill = const Color(0xFF78350F);
+                    }
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                        boxShadow: const [
+                          BoxShadow(color: Color(0x0F0F172A), blurRadius: 8, offset: Offset(0, 2)),
+                        ],
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            // Score Circle Pill
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: bgPill,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  "$val",
+                                  style: TextStyle(
+                                    fontFamily: 'Nunito',
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                    color: fgPill,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+
+                            // Score Label & Category
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    label,
+                                    style: const TextStyle(
+                                      fontFamily: 'Nunito',
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF0F172A),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    "$cat • $date",
+                                    style: const TextStyle(
+                                      fontFamily: 'Inter',
+                                      fontSize: 12,
+                                      color: Color(0xFF64748B),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              );
-            },
-          ),
         ),
       ],
     );
@@ -578,35 +969,51 @@ class _PatientDetailPageState extends State<PatientDetailPage>
 
     return RefreshIndicator(
       onRefresh: _loadDetail,
+      color: const Color(0xFF10B981),
       child: ListView(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         children: [
-          _sectionTitle('Identitas Ibu'),
-          _InfoTile('Nama Lengkap', rootName),
-          _InfoTile('Email', email),
-          _InfoTile('No. WhatsApp', phone),
-          _InfoTile('Usia (tahun)', age == 0 ? '-' : '$age'),
-          _InfoTile('Pendidikan', edu),
-          _InfoTile('Pekerjaan', job),
-          _InfoTile('Alamat', addr),
-
-          _sectionTitle('Riwayat Kehamilan'),
-          _InfoTile('Paritas', parity == 0 ? '-' : '$parity'),
-          _InfoTile('Jenis persalinan', delivery),
-          _InfoTile('Usia kehamilan (minggu)', gest == 0 ? '-' : '$gest'),
-
-          _sectionTitle('Identitas Bayi'),
-          _InfoTile('Jenis kelamin', gender),
-          _InfoTile('Berat lahir (gram)', weight == 0 ? '-' : '$weight'),
-          _InfoTile('Diagnosis medis', mdx),
-          _InfoTile('Tanggal masuk', adm),
-          _InfoTile('Mulai FINC', finc),
-
-          _sectionTitle('Perkembangan Berat Badan'),
-          _InfoTile('BB Awal Intervensi', w0 == 0 ? '-' : '$w0 gram'),
-          _InfoTile('BB Saat Pulang', w1 == 0 ? '-' : '$w1 gram'),
-          _InfoTile('Tanggal Pulang', dc),
-
+          _ProfileSectionCard(
+            title: 'Identitas Ibu',
+            tiles: [
+              _InfoTile('Nama Lengkap', rootName),
+              _InfoTile('Email', email),
+              _InfoTile('No. WhatsApp', phone),
+              _InfoTile('Usia', age == 0 ? '-' : '$age tahun'),
+              _InfoTile('Pendidikan', edu),
+              _InfoTile('Pekerjaan', job),
+              _InfoTile('Alamat', addr),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _ProfileSectionCard(
+            title: 'Riwayat Kehamilan',
+            tiles: [
+              _InfoTile('Paritas', parity == 0 ? '-' : '$parity'),
+              _InfoTile('Jenis Persalinan', delivery),
+              _InfoTile('Usia Kehamilan', gest == 0 ? '-' : '$gest minggu'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _ProfileSectionCard(
+            title: 'Identitas Bayi',
+            tiles: [
+              _InfoTile('Jenis Kelamin', gender),
+              _InfoTile('Berat Lahir', weight == 0 ? '-' : '$weight gram'),
+              _InfoTile('Diagnosis Medis', mdx),
+              _InfoTile('Tanggal Masuk', adm),
+              _InfoTile('Mulai FINC', finc),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _ProfileSectionCard(
+            title: 'Perkembangan Berat Badan',
+            tiles: [
+              _InfoTile('BB Awal Intervensi', w0 == 0 ? '-' : '$w0 gram'),
+              _InfoTile('BB Saat Pulang', w1 == 0 ? '-' : '$w1 gram'),
+              _InfoTile('Tanggal Pulang', dc),
+            ],
+          ),
           const SizedBox(height: 24),
         ],
       ),
@@ -615,6 +1022,52 @@ class _PatientDetailPageState extends State<PatientDetailPage>
 }
 
 /* ======================== WIDGET KECIL ======================== */
+
+class _ProfileSectionCard extends StatelessWidget {
+  final String title;
+  final List<Widget> tiles;
+  const _ProfileSectionCard({required this.title, required this.tiles});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const [
+          BoxShadow(color: Color(0x0F0F172A), blurRadius: 8, offset: Offset(0, 2)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontFamily: 'Nunito',
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Column(children: tiles),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _ErrView extends StatelessWidget {
   final String message;
@@ -628,25 +1081,36 @@ class _ErrView extends StatelessWidget {
       children: [
         Center(
           child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.cloud_off, size: 64, color: Colors.grey),
-                const SizedBox(height: 16),
-                Text(
-                  message,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 16),
-                ),
-              ]
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.wifi_off_rounded, size: 56, color: Color(0xFF94A3B8)),
+              const SizedBox(height: 16),
+              const Text(
+                'Gagal Memuat Data',
+                style: TextStyle(fontFamily: 'Nunito', fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFFEF4444)),
+              ),
+            ],
           ),
         ),
         if (onRetry != null) ...[
-          const SizedBox(height: 12),
+          const SizedBox(height: 20),
           Center(
-            child: OutlinedButton.icon(
+            child: ElevatedButton.icon(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Coba lagi'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF10B981),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Coba lagi', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
             ),
           ),
         ]
@@ -662,36 +1126,32 @@ class _InfoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      title: Text(
-        label,
-        style: TextStyle(
-          color: Theme.of(context).hintColor,
-          fontSize: 13,
-        ),
-      ),
-      subtitle: Text(value, style: const TextStyle(fontSize: 15)),
-      dense: true,
-    );
-  }
-}
-
-class _MiniPill extends StatelessWidget {
-  final String text;
-  const _MiniPill(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(100),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(color: scheme.onSurfaceVariant),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              color: Color(0xFF64748B),
+              fontSize: 13,
+            ),
+          ),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

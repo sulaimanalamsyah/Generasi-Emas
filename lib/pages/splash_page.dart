@@ -56,6 +56,7 @@ class _SplashPageState extends State<SplashPage> {
         final latestVersion = (versionConfig['latestVersion'] as String?) ?? currentVersion;
         final forceUpdate = (versionConfig['forceUpdate'] as bool?) ?? false;
         final storeUrl = (versionConfig['storeUrl'] as String?) ?? '';
+        final releaseNotes = (versionConfig['releaseNotes'] as String?) ?? '';
 
         if (_isVersionOlder(currentVersion, latestVersion)) {
           if (!mounted) return;
@@ -76,10 +77,49 @@ class _SplashPageState extends State<SplashPage> {
                     Text("Update Tersedia"),
                   ],
                 ),
-                content: Text(
-                  forceUpdate
-                      ? "Versi aplikasi Anda ($currentVersion) sudah usang. Mohon update ke versi terbaru ($latestVersion) agar aplikasi berjalan optimal."
-                      : "Versi baru ($latestVersion) tersedia. Apakah Anda ingin update sekarang?",
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      forceUpdate
+                          ? "Versi aplikasi Anda ($currentVersion) sudah usang. Mohon update ke versi terbaru ($latestVersion) agar aplikasi berjalan optimal."
+                          : "Versi baru ($latestVersion) tersedia. Apakah Anda ingin update sekarang?",
+                    ),
+                    if (releaseNotes.trim().isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              "Catatan Pembaruan:",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              releaseNotes.trim(),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 actions: [
                   if (!forceUpdate)

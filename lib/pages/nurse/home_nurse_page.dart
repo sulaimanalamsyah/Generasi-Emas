@@ -3,6 +3,7 @@ import '../../core/storage.dart';
 import '../../services/api_client.dart';
 import '../../services/auth_service.dart';
 import '../../routes.dart';
+import '../../widgets/common.dart';
 import 'nurse_assign_patient_page.dart';
 
 class HomeNursePage extends StatefulWidget {
@@ -142,106 +143,7 @@ class _HomeNursePageState extends State<HomeNursePage> {
     await _auth.logout();
 
     if (!mounted) return;
-    Navigator.pushNamedAndRemoveUntil(context, Routes.login, (_) => false);
-  }
-
-  Widget _buildMenuCard({
-    required BuildContext context,
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-    double? width,
-    double? height,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        width: width,
-        height: height,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Theme.of(context).dividerColor),
-        ),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 36),
-            const SizedBox(height: 8),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 12),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _tile({
-    required IconData icon,
-    required String title,
-    required VoidCallback onTap,
-    String? subtitle,
-    Widget? trailing,
-  }) {
-    return Card(
-      elevation: 0,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: Theme.of(context).dividerColor),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              CircleAvatar(radius: 22, child: Icon(icon)),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (subtitle != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        subtitle,
-                        style: Theme.of(context).textTheme.bodySmall,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              trailing ?? const Icon(Icons.chevron_right),
-            ],
-          ),
-        ),
-      ),
-    );
+    Navigator.pushNamedAndRemoveUntil(context, Routes.start, (_) => false);
   }
 
   Future<void> _openAssignPage() async {
@@ -261,142 +163,323 @@ class _HomeNursePageState extends State<HomeNursePage> {
   Widget build(BuildContext context) {
     if (!_roleOk) return const SizedBox.shrink();
 
-    final screenWidth = MediaQuery.of(context).size.width;
-    const padding = 16.0 * 2;
-    const spacing = 12.0;
-    final cardWidth = (screenWidth - padding - spacing) / 2;
-    final cardHeight = cardWidth * 1.1;
-
     return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         automaticallyImplyLeading: false,
-        title: const Text('Beranda Perawat'),
+        title: Row(
+          children: const [
+            AppLogo(size: 32),
+            SizedBox(width: 10),
+            Text(
+              'ENI Care',
+              style: TextStyle(
+                fontFamily: 'Nunito',
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+          ],
+        ),
         actions: [
-          IconButton(
-            tooltip: 'Keluar',
-            onPressed: _logout,
-            icon: const Icon(Icons.logout),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: IconButton(
+              tooltip: 'Keluar',
+              onPressed: _logout,
+              icon: const Icon(Icons.logout, color: Color(0xFFEF4444), size: 24),
+            ),
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: _loading
-            ? ListView(
-          padding: const EdgeInsets.all(16),
-          children: const [
-            ListTile(
-              leading: SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-              title: Text('Memuat...'),
-            ),
-          ],
-        )
-            : ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            // --- HEADER ---
-            Row(
-              children: [
-                const CircleAvatar(
-                  radius: 24,
-                  child: Icon(Icons.local_hospital_outlined),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Halo, $_displayName',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: _refresh,
+          color: const Color(0xFF10B981),
+          child: _loading
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(20),
+                  children: const [
+                    SizedBox(height: 100),
+                    Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF10B981),
                       ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          const Icon(Icons.person_search_outlined, size: 16),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Pasien Binaan: $_patientCount',
-                            style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                )
+              : ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(20),
+                  children: [
+                    // --- GREETING & PATIENT BANNER WITH EMBEDDED GUIDE CHIP ---
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD1FAE5), // primary-container from DESIGN.md
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x0F0F172A),
+                            blurRadius: 10,
+                            offset: Offset(0, 4),
                           ),
                         ],
                       ),
-                    ],
-                  ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Greeting & Patient Count Column
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Halo, $_displayName',
+                                      style: const TextStyle(
+                                        fontFamily: 'Nunito',
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.w800,
+                                        color: Color(0xFF064E3B), // on-primary-container
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      children: [
+                                        const Icon(Icons.people_alt_outlined, size: 18, color: Color(0xFF064E3B)),
+                                        const SizedBox(width: 6),
+                                        Flexible(
+                                          child: Text(
+                                            'Pasien Binaan: $_patientCount Pasien',
+                                            style: const TextStyle(
+                                              fontFamily: 'Inter',
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w700,
+                                              color: Color(0xFF064E3B),
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+
+                              // Embedded Quick-Action Guide Chip (Min 48x48 dp touch target)
+                              Material(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                child: InkWell(
+                                  onTap: () => Navigator.pushNamed(context, Routes.guide),
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                    constraints: const BoxConstraints(minHeight: 48),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: const Color(0xFF10B981).withValues(alpha: 0.3),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: const [
+                                        Icon(Icons.auto_stories_rounded, size: 18, color: Color(0xFF047857)),
+                                        SizedBox(width: 6),
+                                        Text(
+                                          'Panduan',
+                                          style: TextStyle(
+                                            fontFamily: 'Inter',
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                            color: Color(0xFF047857),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          const Divider(color: Color(0x33064E3B), height: 1),
+                          const SizedBox(height: 10),
+                          // Pull-To-Refresh UX Hint
+                          const Row(
+                            children: [
+                              Icon(Icons.arrow_downward_rounded, size: 14, color: Color(0xFF047857)),
+                              SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  'Tarik ke bawah layar untuk memperbarui data',
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: Color(0xFF047857),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // --- SECTION TITLE ---
+                    const Text(
+                      'Menu Utama Perawat',
+                      style: TextStyle(
+                        fontFamily: 'Nunito',
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // --- 4 SHORTCUT CARDS GRID ---
+                    GridView.count(
+                      crossAxisCount: 2,
+                      crossAxisSpacing: 14,
+                      mainAxisSpacing: 14,
+                      childAspectRatio: 1.1,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      children: [
+                        _NurseMenuCard(
+                          icon: Icons.person_add_alt_1_outlined,
+                          title: 'Assign Pasien',
+                          subtitle: 'Pilih pasien yang belum punya perawat',
+                          onTap: _openAssignPage,
+                        ),
+                        _NurseMenuCard(
+                          icon: Icons.diversity_3_outlined,
+                          title: 'Pasien Binaan',
+                          subtitle: 'Lihat data bayi, logbook, & jurnal per pasien',
+                          onTap: () => Navigator.pushNamed(context, Routes.nurseAgg),
+                        ),
+                        _NurseMenuCard(
+                          icon: Icons.forum_outlined,
+                          title: 'Brainstorming',
+                          subtitle: 'Diskusi & catatan kasus perawat',
+                          onTap: () => Navigator.pushNamed(context, Routes.nurseBrainstorm),
+                        ),
+                        _NurseMenuCard(
+                          icon: Icons.quiz_outlined,
+                          title: 'Quiz Perawat',
+                          subtitle: 'Evaluasi & pemahaman perawat',
+                          onTap: () => Navigator.pushNamed(context, Routes.nurseQuiz),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 24),
+                  ],
                 ),
-              ],
-            ),
-
-            const SizedBox(height: 12),
-            _tile(
-              icon: Icons.refresh,
-              title: 'Reload Data',
-              subtitle: 'Tarik data pasien terbaru',
-              onTap: _refresh,
-              trailing: const Icon(Icons.refresh),
-            ),
-
-            const SizedBox(height: 16),
-
-            // --- MENU LAYOUT PYRAMID ---
-            // Baris 1: Assign Pasien & Pasien Binaan
-            Row(
-              children: [
-                // 1. Assign Pasien
-                Expanded(
-                  child: _buildMenuCard(
-                    context: context,
-                    height: cardHeight,
-                    icon: Icons.person_add_alt_1_outlined,
-                    title: 'Assign Pasien',
-                    subtitle: 'Pilih pasien yang\nbelum punya perawat',
-                    onTap: _openAssignPage,
-                  ),
-                ),
-                const SizedBox(width: 12),
-
-                // 2. Pasien Binaan
-                Expanded(
-                  child: _buildMenuCard(
-                    context: context,
-                    height: cardHeight,
-                    icon: Icons.diversity_3_outlined,
-                    title: 'Pasien Binaan',
-                    subtitle: 'Lihat data bayi, logbook,\n& jurnal per pasien',
-                    onTap: () => Navigator.pushNamed(context, Routes.nurseAgg),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // Baris 2: Folder Perawat
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // 3. Folder Perawat
-                _buildMenuCard(
-                  context: context,
-                  width: cardWidth,
-                  height: cardHeight,
-                  icon: Icons.folder_special_outlined,
-                  title: 'Folder Perawat',
-                  subtitle: 'Brainstorming,\nPasien Binaan, \nQuiz',
-                  onTap: () => Navigator.pushNamed(context, Routes.nurseFolder),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-          ],
         ),
       ),
     );
   }
+}
+
+class _NurseMenuCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _NurseMenuCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F0F172A),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD1FAE5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, size: 26, color: const Color(0xFF10B981)),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF0F172A),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w400,
+                  color: Color(0xFF475569),
+                  height: 1.2,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
 }

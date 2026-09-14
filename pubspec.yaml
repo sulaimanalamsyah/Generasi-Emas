@@ -31,20 +31,22 @@ dependencies:
   flutter:
     sdk: flutter
   shared_preferences: ^2.5.3
+  flutter_secure_storage: ^9.2.4
   http: ^1.2.2
   webview_flutter: ^4.7.0
   url_launcher: ^6.3.0
   intl: ^0.20.2
-  font_awesome_flutter: ^10.12.0
+  font_awesome_flutter: ^11.0.0
   video_player: ^2.8.2
   chewie: ^1.7.5
   firebase_core: ^4.4.0
   firebase_messaging: ^16.1.1
-  flutter_local_notifications: ^17.0.0
+  flutter_local_notifications: ^22.2.0
   connectivity_plus: ^7.0.0
-  flutter_localization: ^0.3.3
-  package_info_plus: ^9.0.0
+  flutter_localization: ^0.4.1
+  package_info_plus: ^9.0.1
   flutter_launcher_icons: ^0.14.4
+  flutter_dotenv: ^5.2.1
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -79,7 +81,9 @@ flutter:
   # the material Icons class.
   uses-material-design: true
   assets:
+    - .env
     - assets/
+    - assets/icons/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

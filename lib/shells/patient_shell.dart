@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../pages/home_patient_page.dart';
 import '../pages/baby_journal_page.dart';
 import '../pages/logbook_page.dart';
-import '../pages/contact_researchers_page.dart';
 import '../pages/profile_page.dart';
 import '../routes.dart';
 
@@ -13,7 +12,7 @@ class PatientShell extends StatefulWidget {
   static Future<void> go(BuildContext context, {int index = 0}) async {
     await Navigator.of(context).pushNamedAndRemoveUntil(
       Routes.patientShell,
-          (_) => false,
+      (_) => false,
       arguments: {'index': index},
     );
   }
@@ -29,9 +28,9 @@ class _PatientShellState extends State<PatientShell> {
     _KeepAlive(child: HomePatientPage()),
     _KeepAlive(child: BabyJournalPage()),
     _KeepAlive(child: LogbookPage()),
-    _KeepAlive(child: ContactResearchersPage()),
     _KeepAlive(child: ProfilePage()),
   ];
+
   @override
   void initState() {
     super.initState();
@@ -48,7 +47,7 @@ class _PatientShellState extends State<PatientShell> {
   }
 
   void _onSelect(int i) {
-    if (i == _index) return; // cegah “nyangkut”
+    if (i == _index) return;
     setState(() => _index = i);
   }
 
@@ -58,27 +57,78 @@ class _PatientShellState extends State<PatientShell> {
       canPop: _index == 0,
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop && _index != 0) {
-          // tekan back → kembali ke tab beranda
           setState(() => _index = 0);
         }
       },
       child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
         body: IndexedStack(index: _index, children: _tabs),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: _index,
-          onDestinationSelected: _onSelect,
-          destinations: const [
-            NavigationDestination(
-                icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Beranda'),
-            NavigationDestination(
-                icon: Icon(Icons.menu_book_outlined), selectedIcon: Icon(Icons.menu_book), label: 'Jurnal'),
-            NavigationDestination(
-                icon: Icon(Icons.edit_note_outlined), selectedIcon: Icon(Icons.edit_note), label: 'Logbook'),
-            NavigationDestination(
-                icon: Icon(Icons.support_agent_outlined), selectedIcon: Icon(Icons.support_agent), label: 'Kontak'),
-            NavigationDestination(
-                icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Profil'),
-          ],
+        bottomNavigationBar: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(
+              top: BorderSide(color: Color(0xFFE2E8F0), width: 1),
+            ),
+          ),
+          child: NavigationBarTheme(
+            data: NavigationBarThemeData(
+              backgroundColor: Colors.white,
+              elevation: 0,
+              height: 68,
+              indicatorColor: const Color(0xFFD1FAE5),
+              indicatorShape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              iconTheme: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return const IconThemeData(color: Color(0xFF064E3B), size: 24);
+                }
+                return const IconThemeData(color: Color(0xFF64748B), size: 24);
+              }),
+              labelTextStyle: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return const TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF064E3B),
+                  );
+                }
+                return const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF64748B),
+                );
+              }),
+            ),
+            child: NavigationBar(
+              selectedIndex: _index,
+              onDestinationSelected: _onSelect,
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.home_outlined),
+                  selectedIcon: Icon(Icons.home_rounded),
+                  label: 'Beranda',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.menu_book_outlined),
+                  selectedIcon: Icon(Icons.menu_book_rounded),
+                  label: 'Jurnal',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.edit_note_outlined),
+                  selectedIcon: Icon(Icons.edit_note_rounded),
+                  label: 'Logbook',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.person_outline_rounded),
+                  selectedIcon: Icon(Icons.person_rounded),
+                  label: 'Profil',
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

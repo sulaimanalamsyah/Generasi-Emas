@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-const kAppName = 'Generasi Emas';
+const kAppName = 'ENI Care';
 const kPrimary = Color(0xFF00A67E);
 const kWarning = Color(0xFFFFB300);
 const kDanger  = Color(0xFFE53935);
@@ -44,8 +46,46 @@ const kFlipStimulasiUrl      = '';
 const kGroupWaIbuUrl         = '';
 const kCopingInfoUrl         = '';
 
-// ========== API Environment ==========
-const String kApiBase = String.fromEnvironment(
-  'API_BASE',
-  defaultValue: 'http://10.0.2.2:4000', // Ganti dengan link Vercel Anda
-);
+// ========== Dynamic Environment Configuration ==========
+class AppEnv {
+  /// Base URL of the RESTful API backend
+  static String get apiBaseUrl {
+    // 1. Prioritize loaded .env file (runtime)
+    if (dotenv.isInitialized) {
+      final envUrl = dotenv.env['API_BASE_URL'] ?? dotenv.env['API_BASE'];
+      if (envUrl != null && envUrl.trim().isNotEmpty) {
+        return envUrl.trim();
+      }
+    }
+
+    // 2. Fallback to compile-time --dart-define flags
+    const defineBase = String.fromEnvironment('API_BASE_URL', defaultValue: '');
+    if (defineBase.isNotEmpty) return defineBase;
+
+    const legacyDefine = String.fromEnvironment('API_BASE', defaultValue: '');
+    if (legacyDefine.isNotEmpty) return legacyDefine;
+
+    // 3. Smart platform fallback for development
+    if (kIsWeb) return 'http://localhost:4000';
+    return defaultTargetPlatform == TargetPlatform.android
+        ? 'http://10.0.2.2:4000'
+        : 'http://localhost:4000';
+  }
+
+  /// Application Name
+  static String get appName =>
+      (dotenv.isInitialized ? dotenv.env['APP_NAME'] : null) ?? kAppName;
+
+  /// Environment mode: 'development', 'staging', or 'production'
+  static String get environment =>
+      (dotenv.isInitialized ? dotenv.env['APP_ENV'] : null) ?? 'development';
+
+  /// Request timeout in seconds
+  static int get apiTimeoutSeconds {
+    final raw = dotenv.isInitialized ? dotenv.env['API_TIMEOUT_SECONDS'] : null;
+    return (raw != null ? int.tryParse(raw) : null) ?? 10;
+  }
+}
+
+/// Backward compatibility alias for existing network callers
+String get kApiBase => AppEnv.apiBaseUrl;

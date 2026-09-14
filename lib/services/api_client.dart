@@ -144,7 +144,7 @@ class ApiClient {
     await _checkConnection();
     try {
       // 1. Coba Request Pertama
-      final response = await requestFn().timeout(const Duration(seconds: 20));
+      final response = await requestFn().timeout(Duration(seconds: AppEnv.apiTimeoutSeconds));
 
       // Jika sukses, return hasil via _handle
       if (response.statusCode >= 200 && response.statusCode < 300) {
@@ -165,7 +165,7 @@ class ApiClient {
         if (success) {
           debugPrint("✅ Refresh Berhasil. Mengulang Request...");
           // 3. Ulangi Request dengan Token Baru
-          final retryResponse = await requestFn().timeout(const Duration(seconds: 20));
+          final retryResponse = await requestFn().timeout(Duration(seconds: AppEnv.apiTimeoutSeconds));
           return _handle(retryResponse);
         } else {
           debugPrint("❌ Refresh Gagal. Logout Paksa.");
@@ -456,7 +456,7 @@ class ApiClient {
     return (j['items'] as List?) ?? [];
   }
   Future<List<dynamic>> nurseGetAssignablePatients({String? q}) async {
-    final uri = '$base/api/nurse/assignable-patients${q != null ? '?q=$q' : ''}';
+    final uri = '$base/api/nurse/assignable-patients${q != null && q.isNotEmpty ? '?q=${Uri.encodeComponent(q)}' : ''}';
     final j = await _get(uri, auth: true);
     return (j['items'] as List?) ?? [];
   }
@@ -527,5 +527,49 @@ class ApiClient {
     try {
       await _put('$base/api/me/fcm-token', {'fcmToken': token}, auth: true);
     } catch (_) {}
+  }
+
+  // Notifications History
+  Future<Map<String, dynamic>> getNotifications() async {
+    final res = await _get('$base/api/me/notifications', auth: true);
+    if (res is Map<String, dynamic>) {
+      return res;
+    }
+    return {'notifications': [], 'unreadCount': 0};
+  }
+
+  Future<void> markNotificationAsRead(int id) async {
+    try {
+      await _put('$base/api/me/notifications/$id/read', {}, auth: true);
+    } catch (_) {}
+  }
+
+  Future<void> markAllNotificationsAsRead() async {
+    try {
+      await _put('$base/api/me/notifications/read-all', {}, auth: true);
+    } catch (_) {}
+  }
+
+  // Banner Carousel
+  Future<List<Map<String, String>>> getBanners() async {
+    try {
+      final r = await http.get(Uri.parse('$base/api/public/banners')).timeout(const Duration(seconds: 10));
+      if (r.statusCode == 200) {
+        final decoded = jsonDecode(r.body);
+        if (decoded is List) {
+          return decoded.map<Map<String, String>>((item) {
+            final map = (item as Map).cast<String, dynamic>();
+            return {
+              'title': (map['title'] ?? '').toString(),
+              'image': (map['image'] ?? '').toString(),
+              'url': (map['url'] ?? '').toString(),
+            };
+          }).where((b) => b['image']!.isNotEmpty).toList();
+        }
+      }
+    } catch (e) {
+      debugPrint("Gagal load banners: $e");
+    }
+    return [];
   }
 }

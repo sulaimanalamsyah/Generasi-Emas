@@ -46,3 +46,26 @@ app.*.map.json
 android/app/google-service.json
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
+lib/firebase_options.dart
+firebase.json
+.env
+.env.*
+!.env.example
+
+# --- RELEASE SIGNING (DO NOT COMMIT) ---
+android/key.properties
+android/*.jks
+android/*.keystore
+android/app/upload-keystore.jks
+
+# --- AGENTS ---
+.agents
+.github/agents
+
+# --- GRAPHIFY ---
+graphify-out/cost.json
+graphify-out/cache/
+graphify-out/.graphify_python
+graphify-out/.graphify_root
+
+''

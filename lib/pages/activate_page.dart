@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../routes.dart';
 import '../services/api_client.dart';
+import '../widgets/common.dart';
 
 class ActivatePage extends StatefulWidget {
   const ActivatePage({super.key});
@@ -24,8 +25,15 @@ class _ActivatePageState extends State<ActivatePage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final arg = ModalRoute.of(context)?.settings.arguments;
-    if (arg is String && _phoneCtrl.text.isEmpty) {
-      _phoneCtrl.text = arg;
+    if (_phoneCtrl.text.isEmpty) {
+      if (arg is String && arg.isNotEmpty) {
+        _phoneCtrl.text = arg;
+      } else if (arg is Map) {
+        final phone = arg['phone'] ?? arg['payload']?['phone'];
+        if (phone is String && phone.isNotEmpty) {
+          _phoneCtrl.text = phone;
+        }
+      }
     }
   }
 
@@ -43,24 +51,40 @@ class _ActivatePageState extends State<ActivatePage> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
             Icon(
-              isError ? Icons.error : Icons.check_circle,
-              color: isError ? Colors.red : Colors.green,
+              isError ? Icons.error_outline : Icons.check_circle_outline,
+              color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
             ),
             const SizedBox(width: 8),
-            Text(
-              title,
-              style: TextStyle(color: isError ? Colors.red : Colors.green, fontSize: 16),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 18,
+                ),
+              ),
             ),
           ],
         ),
-        content: Text(message),
+        content: Text(
+          message,
+          style: const TextStyle(fontSize: 15, color: Color(0xFF334155)),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text("OK"),
+            child: const Text(
+              "OK",
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF10B981),
+              ),
+            ),
           ),
         ],
       ),
@@ -154,175 +178,202 @@ class _ActivatePageState extends State<ActivatePage> {
     final canResend = _cooldown == 0 && !_submitting;
     final canActivate = !_submitting && _otpCtrl.text.trim().length == 6;
 
-    final size = MediaQuery.of(context).size;
-    final double illustrationHeight = size.height * 0.35;
-    final double cardTop = illustrationHeight - 30;
-
     return Scaffold(
-      backgroundColor: const Color(0xFF14AE5C),
-      body: Stack(
-        children: [
-          Positioned(
-            left: 30,
-            right: 0,
-            top: 40,
-            height: illustrationHeight - 40,
-            child: Center(
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Color(0xFF0F172A)),
+          onPressed: () {
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            } else {
+              Navigator.pushReplacementNamed(context, Routes.start);
+            }
+          },
+        ),
+      ),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
               child: Container(
-                constraints: const BoxConstraints(maxWidth: 300),
-                child: Image.asset(
-                  "assets/activate-logo.png",
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return const Icon(Icons.verified_user, size: 100, color: Colors.white);
-                  },
+                padding: const EdgeInsets.all(28),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x0F0F172A),
+                      blurRadius: 16,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
                 ),
-              ),
-            ),
-          ),
+                child: Form(
+                  key: _form,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Centralized Logo
+                      const Center(child: AppLogo(size: 90)),
+                      const SizedBox(height: 20),
 
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            top: cardTop,
-            child: Container(
-              decoration: const ShapeDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment(0.50, -0.00),
-                  end: Alignment(0.50, 1.00),
-                  colors: [Color(0xFFDADADA), Color(0x9914AE5C)],
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(35),
-                    topRight: Radius.circular(35),
+                      // Headings
+                      const Text(
+                        'Aktivasi Akun Anda',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontFamily: 'Nunito',
+                          fontSize: 24,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+
+                      const Text(
+                        'Silakan melakukan aktivasi akun Anda\ndengan menginputkan Kode Token\nyang didapat melalui WhatsApp',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w400,
+                          color: Color(0xFF475569),
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 28),
+
+                      _FigmaInput(
+                        label: "Nomor WhatsApp",
+                        icon: Icons.phone_android_rounded,
+                        controller: _phoneCtrl,
+                        validator: _validatePhone,
+                        keyboardType: TextInputType.phone,
+                      ),
+                      const SizedBox(height: 16),
+
+                      _FigmaInput(
+                        label: "Kode OTP (6 digit)",
+                        icon: Icons.lock_clock_rounded,
+                        controller: _otpCtrl,
+                        validator: _validateOtp,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(6),
+                        ],
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      const SizedBox(height: 24),
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 50,
+                              child: OutlinedButton(
+                                style: OutlinedButton.styleFrom(
+                                  alignment: Alignment.center,
+                                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                                  foregroundColor: const Color(0xFF475569),
+                                  side: const BorderSide(color: Color(0xFFCBD5E1)),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  textStyle: const TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                onPressed: canResend ? _resendOtp : null,
+                                child: Text(
+                                  canResend
+                                      ? 'Kirim Ulang Kode'
+                                      : 'Kirim Ulang (${_cooldown}s)',
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: SizedBox(
+                              height: 50,
+                              child: FilledButton(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFF10B981),
+                                  disabledBackgroundColor: const Color(0xFFCBD5E1),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  textStyle: const TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                onPressed: (canActivate && !_submitting) ? _activate : null,
+                                child: _submitting
+                                    ? const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Text('Aktivasi'),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+
+                      Center(
+                        child: SizedBox(
+                          height: 48,
+                          child: TextButton(
+                            onPressed: () => Navigator.pushNamedAndRemoveUntil(
+                              context,
+                              Routes.start,
+                              (r) => false,
+                            ),
+                            child: const Text(
+                              'Kembali ke Halaman Awal',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                color: Color(0xFF475569),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
           ),
-
-          Positioned.fill(
-            top: cardTop + 20,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 10),
-              child: Form(
-                key: _form,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Text(
-                      'Aktivasi Akun Anda',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 24,
-                        fontFamily: 'Inter',
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.33,
-                        shadows: [
-                          Shadow(
-                            offset: Offset(0, 4),
-                            blurRadius: 3,
-                            color: Color.fromRGBO(0, 0, 0, 0.25),
-                          )
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-
-                    const Text(
-                      'Silakan melakukan aktivasi akun Anda\ndengan menginputkan Kode Token\nyang didapat melalui Whatsapp',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 12,
-                        fontFamily: 'Inter',
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 30),
-
-                    _FigmaInput(
-                      label: "Nomor WhatsApp",
-                      icon: Icons.phone_android_outlined,
-                      controller: _phoneCtrl,
-                      validator: _validatePhone,
-                      keyboardType: TextInputType.phone,
-                    ),
-                    const SizedBox(height: 16),
-
-                    _FigmaInput(
-                      label: "Kode OTP (6 digit)",
-                      icon: Icons.lock_clock_outlined,
-                      controller: _otpCtrl,
-                      validator: _validateOtp,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(6),
-                      ],
-                      onChanged: (_) => setState(() {}),
-                    ),
-                    const SizedBox(height: 24),
-
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: _FigmaButton(
-                            label: canResend
-                                ? 'Kirim Ulang Kode'
-                                : 'Kirim Ulang (${_cooldown}s)',
-                            onTap: canResend ? _resendOtp : () {},
-                            isDisabled: !canResend,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _FigmaButton(
-                            label: _submitting ? '...' : 'Aktivasi',
-                            onTap: (canActivate && !_submitting) ? _activate : () {},
-                            isDisabled: !(canActivate && !_submitting),
-                            isPrimary: true,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-
-                    TextButton(
-                      onPressed: () => Navigator.pushNamedAndRemoveUntil(
-                        context,
-                        Routes.start,
-                            (r) => false,
-                      ),
-                      child: const Text(
-                        'Kembali ke Halaman Awal',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.black,
-                          fontSize: 12,
-                          fontFamily: 'Inter',
-                          fontWeight: FontWeight.w800,
-                          decoration: TextDecoration.underline,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 40),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
-// Widget Input Field
+// Widget Input Field Refactored
 class _FigmaInput extends StatelessWidget {
   final String label;
   final IconData icon;
@@ -347,114 +398,55 @@ class _FigmaInput extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Stack(
-          children: [
-            Container(
-              height: 50,
-              decoration: ShapeDecoration(
-                color: Colors.white.withValues(alpha: 0.8),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                shadows: const [
-                  BoxShadow(color: Color(0x3F000000), blurRadius: 4, offset: Offset(0, 4))
-                ],
-              ),
-            ),
-            TextFormField(
-              controller: controller,
-              keyboardType: keyboardType,
-              inputFormatters: inputFormatters,
-              validator: validator,
-              onChanged: onChanged,
-              style: const TextStyle(fontSize: 14, color: Colors.black87),
-              decoration: InputDecoration(
-                hintText: label,
-                hintStyle: const TextStyle(color: Colors.black54, fontSize: 13, fontFamily: 'Inter'),
-                contentPadding: const EdgeInsets.only(left: 48, right: 16, top: 14, bottom: 14),
-                border: InputBorder.none,
-                errorStyle: const TextStyle(
-                  color: Color.fromARGB(255, 200, 0, 0),
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            Positioned(
-              left: 12,
-              top: 13,
-              child: Icon(icon, color: Colors.grey, size: 24),
-            ),
-          ],
+        Text(
+          label,
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF0F172A),
+          ),
         ),
-      ],
-    );
-  }
-}
-
-// Widget Tombol Custom
-class _FigmaButton extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-  final bool isDisabled;
-  final bool isPrimary;
-
-  const _FigmaButton({
-    required this.label,
-    required this.onTap,
-    this.isDisabled = false,
-    this.isPrimary = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final Decoration decoration = isDisabled
-        ? BoxDecoration(
-      color: Colors.grey.shade400,
-      borderRadius: BorderRadius.circular(15),
-    )
-        : isPrimary
-        ? ShapeDecoration(
-      gradient: const LinearGradient(
-        begin: Alignment(0.0, 0.5),
-        end: Alignment(1.0, 0.5),
-        colors: [Color(0xFF27AAE1), Color(0xFF155C7B)],
-      ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-      shadows: const [BoxShadow(color: Color(0x3F000000), blurRadius: 3, offset: Offset(0, 4))],
-    )
-        : ShapeDecoration(
-      color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-      shadows: const [BoxShadow(color: Color(0x3F000000), blurRadius: 3, offset: Offset(0, 4))],
-    );
-
-    final Color textColor = isDisabled
-        ? Colors.white70
-        : isPrimary
-        ? Colors.white
-        : Colors.black87;
-
-    return Container(
-      height: 40,
-      decoration: decoration,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(15),
-          onTap: isDisabled ? null : onTap,
-          child: Center(
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: textColor,
-                fontSize: 13,
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w600,
-              ),
+        const SizedBox(height: 6),
+        TextFormField(
+          controller: controller,
+          keyboardType: keyboardType,
+          inputFormatters: inputFormatters,
+          validator: validator,
+          onChanged: onChanged,
+          style: const TextStyle(fontFamily: 'Inter', fontSize: 15, color: Color(0xFF0F172A)),
+          decoration: InputDecoration(
+            hintText: 'Masukkan $label',
+            hintStyle: const TextStyle(fontFamily: 'Inter', color: Color(0xFF94A3B8), fontSize: 14),
+            prefixIcon: Icon(icon, color: const Color(0xFF475569), size: 20),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFF10B981), width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFEF4444)),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFEF4444), width: 2),
+            ),
+            errorStyle: const TextStyle(
+              fontFamily: 'Inter',
+              color: Color(0xFFEF4444),
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ),
-      ),
+      ],
     );
   }
 }

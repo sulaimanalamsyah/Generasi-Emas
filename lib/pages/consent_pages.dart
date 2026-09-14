@@ -16,14 +16,23 @@ String _formatDate(String? isoString) {
   }
 }
 
-// Read Only
+// Read Only Page
 class ConsentReadOnlyPage extends StatefulWidget {
   const ConsentReadOnlyPage({super.key});
-  @override State<ConsentReadOnlyPage> createState() => _ConsentReadOnlyPageState();
+  @override
+  State<ConsentReadOnlyPage> createState() => _ConsentReadOnlyPageState();
 }
+
 class _ConsentReadOnlyPageState extends State<ConsentReadOnlyPage> {
-  String _text = ''; String _date = kConsentLastUpdated; bool _loading = true;
-  @override void initState() { super.initState(); _loadData(); }
+  String _text = '';
+  String _date = kConsentLastUpdated;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
 
   Future<void> _loadData() async {
     final api = ApiClient();
@@ -32,7 +41,8 @@ class _ConsentReadOnlyPageState extends State<ConsentReadOnlyPage> {
       if (mounted) {
         setState(() {
           if (data['text'] != null && data['text'].toString().isNotEmpty) {
-            _text = data['text']; _date = _formatDate(data['updatedAt']);
+            _text = data['text'];
+            _date = _formatDate(data['updatedAt']);
           } else {
             _text = _defaultConsentText;
           }
@@ -48,23 +58,88 @@ class _ConsentReadOnlyPageState extends State<ConsentReadOnlyPage> {
 
         if (e is ApiError && e.status == 0) {
           ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Offline: Menampilkan teks standar."))
+            const SnackBar(content: Text("Offline: Menampilkan teks standar.")),
           );
         }
       }
     }
   }
 
-  @override Widget build(BuildContext context) {
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Informed Consent')),
-      body: _loading ? const Center(child: CircularProgressIndicator()) : Column(
-        children: [
-          _ConsentHeader(date: _date),
-          Expanded(child: _ConsentText(text: _text)),
-          Padding(padding: const EdgeInsets.all(16), child: SizedBox(width: double.infinity, child: OutlinedButton(onPressed: () => Navigator.pop(context), child: const Text('Kembali')))),
-        ],
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        title: const Text(
+          'Informed Consent',
+          style: TextStyle(
+            color: Color(0xFF0F172A),
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
+          ),
+        ),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
       ),
+      body: _loading
+          ? const Center(
+              child: CircularProgressIndicator(
+                color: Color(0xFF10B981),
+              ),
+            )
+          : Column(
+              children: [
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x08000000),
+                            blurRadius: 8,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          _ConsentHeader(date: _date),
+                          const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                          Expanded(child: _ConsentText(text: _text)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF475569),
+                        side: const BorderSide(color: Color(0xFFCBD5E1)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        textStyle: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Kembali'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
     );
   }
 }
@@ -98,24 +173,40 @@ class _ConsentRegisterPageState extends State<ConsentRegisterPage> {
     return showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
             Icon(
-              isError ? Icons.error : Icons.check_circle,
-              color: isError ? Colors.red : Colors.green,
+              isError ? Icons.error_outline : Icons.check_circle_outline,
+              color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
             ),
             const SizedBox(width: 8),
-            Text(
-              title,
-              style: TextStyle(color: isError ? Colors.red : Colors.green),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 18,
+                ),
+              ),
             ),
           ],
         ),
-        content: Text(message),
+        content: Text(
+          message,
+          style: const TextStyle(fontSize: 15, color: Color(0xFF334155)),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text("OK"),
+            child: const Text(
+              "OK",
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF10B981),
+              ),
+            ),
           ),
         ],
       ),
@@ -145,7 +236,7 @@ class _ConsentRegisterPageState extends State<ConsentRegisterPage> {
         });
         if (e is ApiError && e.status == 0) {
           ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Offline: Menampilkan teks standar."))
+            const SnackBar(content: Text("Offline: Menampilkan teks standar.")),
           );
         }
       }
@@ -206,11 +297,11 @@ class _ConsentRegisterPageState extends State<ConsentRegisterPage> {
     final api = ApiClient();
     try {
       await api.register(
-          name: name,
-          email: email,
-          phone: phone,
-          password: password,
-          role: role
+        name: name,
+        email: email,
+        phone: phone,
+        password: password,
+        role: role,
       );
 
       try {
@@ -249,43 +340,186 @@ class _ConsentRegisterPageState extends State<ConsentRegisterPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Informed Consent')),
-      body: _loadingContent
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-        children: [
-          _ConsentHeader(date: _contentDate),
-          Expanded(
-            child: _ConsentText(
-              controller: _scroll,
-              text: _contentBody,
-            ),
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        title: const Text(
+          'Informed Consent',
+          style: TextStyle(
+            color: Color(0xFF0F172A),
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
           ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
+        ),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        automaticallyImplyLeading: false,
+      ),
+      body: _loadingContent
+          ? const Center(
+              child: CircularProgressIndicator(
+                color: Color(0xFF10B981),
+              ),
+            )
+          : Column(
               children: [
                 Expanded(
-                  child: OutlinedButton(
-                    onPressed: _submitting
-                        ? null
-                        : () => Navigator.pushNamedAndRemoveUntil(context, Routes.start, (r) => false),
-                    child: const Text('Tidak Setuju'),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x08000000),
+                            blurRadius: 8,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          _ConsentHeader(date: _contentDate),
+                          const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                          Expanded(
+                            child: _ConsentText(
+                              controller: _scroll,
+                              text: _contentBody,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: (!_submitting && _atBottom) ? _agreeAndRegister : null,
-                    child: _submitting
-                        ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Text('Setuju'),
+                if (!_atBottom && !_loadingContent)
+                  Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.arrow_downward_rounded, size: 16, color: Color(0xFF475569)),
+                        SizedBox(width: 6),
+                        Text(
+                          'Gulir ke bawah untuk menyetujui',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF475569),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          height: 50,
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF475569),
+                              side: const BorderSide(color: Color(0xFFCBD5E1)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              textStyle: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            onPressed: _submitting
+                                ? null
+                                : () => Navigator.pushNamedAndRemoveUntil(context, Routes.start, (r) => false),
+                            child: const Text('Tidak Setuju'),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: SizedBox(
+                          height: 50,
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF10B981),
+                              disabledBackgroundColor: const Color(0xFFCBD5E1),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              textStyle: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            onPressed: (!_submitting && _atBottom) ? _agreeAndRegister : null,
+                            child: _submitting
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Text('Setuju'),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
+            ),
+    );
+  }
+}
+
+// Custom Header Widget
+class _ConsentHeader extends StatelessWidget {
+  final String date;
+  const _ConsentHeader({required this.date});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Expanded(
+            child: Text(
+              'Penjelasan Penelitian',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              'Diperbarui: $date',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF475569),
+              ),
             ),
           ),
         ],
@@ -294,32 +528,42 @@ class _ConsentRegisterPageState extends State<ConsentRegisterPage> {
   }
 }
 
-// Widget
-class _ConsentHeader extends StatelessWidget {
-  final String date;
-  const _ConsentHeader({required this.date});
-  @override Widget build(BuildContext context) {
-    return Padding(padding: const EdgeInsets.all(16), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Informed Consent', style: TextStyle(fontWeight: FontWeight.w600)), Text('Diperbarui: $date', style: const TextStyle(fontSize: 12, color: Colors.grey))]));
-  }
-}
+// Custom Scrollable Text Widget
 class _ConsentText extends StatelessWidget {
-  final ScrollController? controller; final String text;
+  final ScrollController? controller;
+  final String text;
   const _ConsentText({this.controller, required this.text});
-  @override Widget build(BuildContext context) {
+
+  @override
+  Widget build(BuildContext context) {
     final List<String> lines = text.split('\n');
     return ListView.builder(
-      controller: controller, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16), itemCount: lines.length,
+      controller: controller,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      itemCount: lines.length,
       itemBuilder: (context, index) {
         final line = lines[index].trim();
         if (line.isEmpty) return const SizedBox(height: 12);
         final bool isHeader = line == line.toUpperCase() && line.length < 60 && line.length > 3;
-        return Padding(padding: const EdgeInsets.only(bottom: 4), child: Text(line, textAlign: isHeader ? TextAlign.center : TextAlign.justify, style: TextStyle(fontSize: isHeader ? 15 : 13.5, fontWeight: isHeader ? FontWeight.bold : FontWeight.normal, height: 1.6, color: Colors.black87)));
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Text(
+            line,
+            textAlign: isHeader ? TextAlign.center : TextAlign.justify,
+            style: TextStyle(
+              fontSize: isHeader ? 16 : 15,
+              fontWeight: isHeader ? FontWeight.w700 : FontWeight.w400,
+              height: 1.6,
+              color: isHeader ? const Color(0xFF0F172A) : const Color(0xFF334155),
+            ),
+          ),
+        );
       },
     );
   }
 }
-const String _defaultConsentText = '''PENJELASAN PENELITIAN
-PENELITIAN TAHAP UJI COBA MODEL I-FINC BERBASIS APLIKASI MOBILE
+
+const String _defaultConsentText = '''PENELITIAN TAHAP UJI COBA MODEL I-FINC BERBASIS APLIKASI MOBILE
 
 Assalamualaikum Wr. Wb., Saya Eni Rahmawati merupakan mahasiswa akan mengadakan penelitian. Pada bagian ini, saya bermaksud mengadakan penelitian tentang Usability Testing terhadap Aplikasi Model Indonesian Family Integrated Neonatal Care (I-FINC) bermasis aplikasi mobile menggunakan smartphone. Penelitian ini bertujuan untuk mengetahui kelayakan dan kegunaan dari Model I-FINC dengan aplikasi interaktif. Saya memohon kesediaan Bapak/Ibu untuk menjadi responden dalam penelitian ini. Bapak/Ibu diminta untuk download aplikasi dari handphone kemudian Bapak/Ibu menggunakan aplikasi tersebut sesuai kebutuhan Bapak/Ibu. Bapak/Ibu menggunakan aplikasi tersebut selama 2-4 minggu kemudian pada sesi Bapak/Ibu akan diminta mengisi kuesioner. Kuesioner ini terdiri dari dua bagian, yaitu bagian yang pertama berisi tentang data biografi, bagian kedua berisi tentang kelayakan dan kegunaan dari aplikasi yang dibuat seperti adanya permasalahan dan kemudahan dalam menggunakan aplikasi. Waktu pengisian kuesioner termasuk penggunaan aplikasi kurang lebih selama 30 menit. Partisipasi Bapak/Ibu dalam penelitian ini bersifat sukarela dan tidak ada unsur paksaan sehingga Bapak/Ibu berhak memutuskan bersedia atau menolak untuk menjadi responden. Peneliti akan memberikan hak kepada responden apabila ingin mengundurkan diri dari penelitian. Penelitian ini tidak akan menimbulkan dampak negatif yang merugikan pekerjaan maupun kehidupan pribadi responden. Peneliti akan menjaga kerahasiaan data yang diperoleh, identitas responden tidak akan dicantumkan oleh peneliti baik dalam pelaporan maupun publikasi. Data yang diperoleh akan disimpan dengan pengamanan dan akses terbatas hanya untuk peneliti. Jika dikemudian hari Bapak/Ibu ingin menghapus data yang telah dimasukkan karena satu dan lain hal, saya dengan senang hati akan membantu.
 
