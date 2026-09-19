@@ -61,6 +61,8 @@ android/app/upload-keystore.jks
 # --- AGENTS ---
 .agents
 .github/agents
+AGENTS.md
+.codex/
 
 # --- GRAPHIFY ---
 graphify-out/cost.json
