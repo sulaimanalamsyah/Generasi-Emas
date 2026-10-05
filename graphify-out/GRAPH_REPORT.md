@@ -1,4 +1,4 @@
-# Graph Report - Generasi_Emas  (2026-10-05)
+# Graph Report - Generasi_Emas  (2026-10-06)
 
 ## Corpus Check
 - 88 files · ~139,697 words
@@ -6,12 +6,12 @@
 - Unclassified: 56 file(s) not represented in the graph (top: (none) 9, .xml 8, .xcconfig 8)
 
 ## Summary
-- 1721 nodes · 2306 edges · 90 communities (70 shown, 13 thin omitted)
+- 1718 nodes · 2309 edges · 87 communities (67 shown, 12 thin omitted)
 - Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 43 edges (avg confidence: 0.65)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `5edba634`
+- Built from commit: `69f0e9f2`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -22,9 +22,9 @@
 - Generasi Emas App
 - nurse_agg_page.dart
 - notifications_page.dart
-- quiz_nurse_page.dart
+- posttest_page.dart
 - login_page.dart
-- Common Widgets
+- build
 - logbook_page.dart
 - routes.dart
 - Win32Window
@@ -66,21 +66,19 @@
 - _openDetail
 - fcm_service.dart
 - common.dart
-- app.dart
+- ../routes.dart
 - growth_chart.dart
-- List
+- loading_overlay.dart
 - wWinMain
 - manifest.json
 - youtube_helper.dart
 - link_utils.dart
-- _KeepAliveState
+- _AddJournalSheet
 - ../services/api_client.dart
-- posttest_page.dart
 - pdf_helper.dart
 - age_calculator.dart
 - _PatientDetailPageState
 - Routes
-- MaterialPageRoute
 - forgot_password_page.dart
 - MainActivity.kt
 - father_link_page.dart
@@ -90,14 +88,12 @@
 - _EditJournalSheet
 - _CreateLogbookSheet
 - LogbookPage
-- build
 - modules_page.dart
 - weight_formatter.dart
 - @email
 - String?
 - weight_formatter_test.dart
 - HomePatientPage
-- _ExpandableGuideStepCard
 - GuidePage
 
 ## God Nodes (most connected - your core abstractions)
@@ -109,29 +105,29 @@
 6. `WndProc` - 10 edges
 7. `build` - 9 edges
 8. `MessageHandler` - 9 edges
-9. `Generasi Emas App` - 9 edges
-10. `NurseShell4` - 8 edges
+9. `WindowClassRegistrar` - 7 edges
+10. `OnCreate` - 7 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `Generasi Emas App` --uses--> `App Visual Assets`  [EXTRACTED]
   pubspec.yaml → assets/icon.png
-- `Generasi Emas App` --implements--> `Dual-Role User System`  [EXTRACTED]
-  pubspec.yaml → lib/routes.dart
-- `Generasi Emas App` --implements--> `Health Journaling System`  [EXTRACTED]
-  pubspec.yaml → lib/routes.dart
-- `Generasi Emas App` --implements--> `Pre/Post Test Assessment System`  [EXTRACTED]
-  pubspec.yaml → lib/routes.dart
 - `Generasi Emas App` --targets--> `Multi-Platform Flutter Build`  [EXTRACTED]
   pubspec.yaml → linux/CMakeLists.txt
+- `Win32Window::Win32Window()` --calls--> `Destroy`  [INFERRED]
+  windows/runner/win32_window.cpp → windows/runner/win32_window.h
+- `wWinMain()` --calls--> `CreateAndAttachConsole()`  [INFERRED]
+  windows/runner/main.cpp → windows/runner/utils.cpp
+- `GenerasiEmasApp` --uses--> `Routes`  [EXTRACTED]
+  lib/app.dart → lib/routes.dart
 
 ## Import Cycles
 - None detected.
 
-## Communities (90 total, 13 thin omitted)
+## Communities (87 total, 12 thin omitted)
 
 ### Community 0 - "profile_page.dart"
 Cohesion: 0.07
-Nodes (27): _api, _buildPartnerContent, _buildPartnerInfoRow, _buildPartnerMenuTile, _cancelOutgoingRequest, _confirmUnlinkPartner, createState, dispose (+19 more)
+Nodes (30): _api, _buildPartnerContent, _buildPartnerInfoRow, _buildPartnerMenuTile, _cancelOutgoingRequest, _confirmUnlinkPartner, createState, dispose (+22 more)
 
 ### Community 1 - "home_patient_page.dart"
 Cohesion: 0.06
@@ -142,8 +138,8 @@ Cohesion: 0.02
 Nodes (98): addGrowthMeasurement, addNurseReview, ApiClient, _attemptRefreshToken, base, cancelPartnerRequest, category, _checkConnection (+90 more)
 
 ### Community 3 - "Generasi Emas App"
-Cohesion: 0.22
-Nodes (9): App Visual Assets, Pre/Post Test Assessment System, Dual-Role User System, Firebase Integration, Multi-Platform Flutter Build, Generasi Emas App, Health Journaling System, Project Dependencies (+1 more)
+Cohesion: 0.33
+Nodes (6): App Visual Assets, Firebase Integration, Multi-Platform Flutter Build, Generasi Emas App, Project Dependencies, Stunting Education Mission
 
 ### Community 4 - "nurse_agg_page.dart"
 Cohesion: 0.05
@@ -153,13 +149,17 @@ Nodes (36): _api, _asString, _babyNameOf, bgColor, build, _buildBody, _buildFilt
 Cohesion: 0.08
 Nodes (26): _api, build, _buildEmptyState, _buildErrorCard, _buildLoadingShimmer, _buildMasterSwitchCard, _buildNotificationCard, _buildScheduleCard (+18 more)
 
-### Community 6 - "quiz_nurse_page.dart"
-Cohesion: 0.11
-Nodes (19): Color, IconData, _api, bgColor, build, _buildQuizCard, color, createState (+11 more)
+### Community 6 - "posttest_page.dart"
+Cohesion: 0.05
+Nodes (42): _setupCustomWidgetCallbacks, _api, bgColor, build, _buildQuizCard, color, createState, desc (+34 more)
 
 ### Community 7 - "login_page.dart"
 Cohesion: 0.17
 Nodes (12): _api, createState, dispose, _email, _goHomeByRole, _loading, LoginPage, _LoginPageState (+4 more)
+
+### Community 8 - "build"
+Cohesion: 0.22
+Nodes (9): build, build, Routes.brainstorming, Routes.modules, Routes.notifications, Routes.posttest, Routes.pretest, Routes.quiz (+1 more)
 
 ### Community 9 - "logbook_page.dart"
 Cohesion: 0.03
@@ -215,23 +215,23 @@ Nodes (32): 2025, _agreeAndRegister, _atBottom, build, ConsentReadOnlyPage, _Con
 
 ### Community 22 - "profile_mother_detail_page.dart"
 Cohesion: 0.06
-Nodes (33): _address, _age, _api, _babyBirthDate, _babyName, _birthWeight, build, _buildDateRow (+25 more)
+Nodes (32): _address, _age, _api, _babyBirthDate, _babyName, _birthWeight, build, _buildDateRow (+24 more)
 
 ### Community 23 - "profile_infant_detail_page.dart"
 Cohesion: 0.05
 Nodes (38): _admissionLocal, _api, _birthDateLocal, build, _buildDateRow, _buildSectionCard, _buildTextField, _buildViewRow (+30 more)
 
 ### Community 24 - "activate_page.dart"
-Cohesion: 0.04
-Nodes (47): _activate, ActivatePage, _ActivatePageState, build, controller, _cooldown, createState, didChangeDependencies (+39 more)
+Cohesion: 0.08
+Nodes (23): _activate, build, controller, _cooldown, createState, didChangeDependencies, dispose, _FigmaInput (+15 more)
 
 ### Community 25 - "guide_page.dart"
-Cohesion: 0.08
-Nodes (25): build, _buildFatherSteps, _buildMotherSteps, _buildNurseSteps, category, categoryColor, categoryTextColor, createState (+17 more)
+Cohesion: 0.07
+Nodes (27): build, _buildFatherSteps, _buildMotherSteps, _buildNurseSteps, category, categoryColor, categoryTextColor, createState (+19 more)
 
 ### Community 26 - "register_page.dart"
-Cohesion: 0.08
-Nodes (26): FormState, _buildInputDecoration, _buildLabel, createState, dispose, _email, _formKey, initState (+18 more)
+Cohesion: 0.05
+Nodes (40): FormState, _buildNoInfantBanner, _buildNoStart, build, build, build, _buildInputDecoration, _buildLabel (+32 more)
 
 ### Community 27 - "my_application.cc"
 Cohesion: 0.10
@@ -242,24 +242,24 @@ Cohesion: 0.09
 Nodes (23): _api, _assigningId, _assignPatient, build, _buildBody, createState, _debounce, _displayInfantRaw (+15 more)
 
 ### Community 29 - "in_app_viewer_page.dart"
-Cohesion: 0.07
-Nodes (26): ChewieController?, build, _c, _chewie, createState, dispose, _err, _errorMessage (+18 more)
+Cohesion: 0.08
+Nodes (25): ChewieController?, build, _c, _chewie, createState, dispose, _err, _errorMessage (+17 more)
 
 ### Community 30 - "video_page.dart"
 Cohesion: 0.09
-Nodes (22): ../core/youtube_helper.dart, _allModules, _api, BrainstormingPage, build, _buildBody, createState, dispose (+14 more)
+Nodes (23): Color, ../core/youtube_helper.dart, _allModules, _api, BrainstormingPage, build, _buildBody, createState (+15 more)
 
 ### Community 31 - "home_nurse_page.dart"
-Cohesion: 0.06
-Nodes (37): build, build, _api, _bootstrap, build, createState, _displayName, HomeNursePage (+29 more)
+Cohesion: 0.09
+Nodes (23): IconData, _api, _bootstrap, createState, _displayName, HomeNursePage, _HomeNursePageState, icon (+15 more)
 
 ### Community 32 - "video_detail_page.dart"
 Cohesion: 0.07
-Nodes (27): args, build, _controller, _copyLink, createState, _currentDescription, _currentModuleTitle, _currentTitle (+19 more)
+Nodes (28): args, build, _controller, _copyLink, createState, _currentDescription, _currentModuleTitle, _currentTitle (+20 more)
 
 ### Community 33 - "nurse_shell_4.dart"
-Cohesion: 0.11
-Nodes (17): bool get, build, child, createState, didChangeDependencies, go, _index, initialIndex (+9 more)
+Cohesion: 0.12
+Nodes (16): build, child, createState, didChangeDependencies, go, _index, initialIndex, initState (+8 more)
 
 ### Community 34 - "package:flutter/foundation.dart"
 Cohesion: 0.33
@@ -274,20 +274,20 @@ Cohesion: 0.12
 Nodes (17): _api, _bootstrap, build, _card, createState, _fmtDate, initState, isFather (+9 more)
 
 ### Community 38 - "build"
-Cohesion: 0.25
-Nodes (8): build, build, build, Routes.consent, Routes.forgot, Routes.login, Routes.privacyPolicy, Routes.register
+Cohesion: 0.47
+Nodes (6): build, build, Routes.guide, Routes.nurseAgg, Routes.nurseBrainstorm, Routes.nurseQuiz
 
 ### Community 39 - "patient_shell.dart"
 Cohesion: 0.11
-Nodes (17): ../core/partner_sync.dart, build, child, createState, didChangeDependencies, go, _index, initialIndex (+9 more)
+Nodes (17): bool get, ../core/partner_sync.dart, build, child, createState, didChangeDependencies, go, _index (+9 more)
 
 ### Community 40 - "contact_researchers_page.dart"
 Cohesion: 0.12
 Nodes (17): ../core/link_utils.dart, Future, _api, build, _call, ContactResearchersPage, _ContactResearchersPageState, _copy (+9 more)
 
 ### Community 41 - "State"
-Cohesion: 0.17
-Nodes (16): _AddJournalSheet, _AddJournalSheetState, ProfilePage, _ProfilePageState, VideoDetailPage, _VideoDetailPageState, PatientShell, _PatientShellState (+8 more)
+Cohesion: 0.15
+Nodes (19): AutomaticKeepAliveClientMixin, _KeepAlive, ActivatePage, _ActivatePageState, VideoDetailPage, _VideoDetailPageState, _KeepAliveState, _KeepAlive (+11 more)
 
 ### Community 42 - "../core/storage.dart"
 Cohesion: 0.22
@@ -321,17 +321,17 @@ Nodes (16): api_client.dart, _api, disableNotifications, enableNotifications, Fc
 Cohesion: 0.17
 Nodes (11): BoxFit, double?, AppLogo, build, commonAppBar, evaluationAppBar, fit, isError (+3 more)
 
-### Community 51 - "app.dart"
-Cohesion: 0.20
-Nodes (9): ../core/constants.dart, GlobalKey, build, GenerasiEmasApp, navigatorKey, scaffoldMessengerKey, NavigatorState, package:flutter_localizations/flutter_localizations.dart (+1 more)
+### Community 51 - "../routes.dart"
+Cohesion: 0.18
+Nodes (10): ../core/constants.dart, GlobalKey, build, GenerasiEmasApp, navigatorKey, scaffoldMessengerKey, NavigatorState, package:flutter_localizations/flutter_localizations.dart (+2 more)
 
 ### Community 52 - "growth_chart.dart"
 Cohesion: 0.09
 Nodes (22): ../core/weight_formatter.dart, CustomPainter, int?, activeMetric, build, _buildLegendPill, _buildMetricTab, _buildPointDetailCard (+14 more)
 
-### Community 53 - "List"
+### Community 53 - "loading_overlay.dart"
 Cohesion: 0.17
-Nodes (12): build, createState, dispose, _index, initState, LoadingOverlay, _LoadingOverlayState, message (+4 more)
+Nodes (12): dart:async, build, createState, dispose, _index, initState, LoadingOverlay, _LoadingOverlayState (+4 more)
 
 ### Community 54 - "wWinMain"
 Cohesion: 0.24
@@ -349,17 +349,9 @@ Nodes (9): , buildPlayerHtml, charset, class, extractVideoId, getPlayableUrl, ge
 Cohesion: 0.25
 Nodes (7): launchUrl, normalizeIdPhone, openWhatsApp, p, uri, package:url_launcher/url_launcher.dart, return
 
-### Community 58 - "_KeepAliveState"
-Cohesion: 0.67
-Nodes (4): AutomaticKeepAliveClientMixin, _KeepAlive, _KeepAliveState, _KeepAliveState
-
 ### Community 59 - "../services/api_client.dart"
 Cohesion: 0.22
 Nodes (9): build, createState, _initApp, initState, _isVersionOlder, SplashPage, _SplashPageState, package:package_info_plus/package_info_plus.dart (+1 more)
-
-### Community 60 - "posttest_page.dart"
-Cohesion: 0.12
-Nodes (16): dart:async, _api, createState, _fmtDate, _getAverageScoreData, initState, isFather, _items (+8 more)
 
 ### Community 61 - "pdf_helper.dart"
 Cohesion: 0.33
@@ -374,12 +366,8 @@ Cohesion: 0.67
 Nodes (3): PatientDetailPage, _PatientDetailPageState, SingleTickerProviderStateMixin
 
 ### Community 64 - "Routes"
-Cohesion: 0.40
-Nodes (5): FolderNursePage, Routes, NurseShell4, _NurseShell4State, ../routes.dart
-
-### Community 65 - "MaterialPageRoute"
-Cohesion: 0.22
-Nodes (9): _setupCustomWidgetCallbacks, _openForm, _handleOpenForm, _handleOpenForm, _handleOpenForm, _setupCustomWidgetCallbacks, _setupCustomWidgetCallbacks, _setupCustomWidgetCallbacks (+1 more)
+Cohesion: 0.50
+Nodes (4): FolderNursePage, Routes, NurseShell4, _NurseShell4State
 
 ### Community 66 - "forgot_password_page.dart"
 Cohesion: 0.17
@@ -393,13 +381,9 @@ Nodes (19): _api, build, _buildInputCard, _buildPendingCard, _cancelRequest, _ch
 Cohesion: 0.67
 Nodes (3): NurseAggPage, _NurseAggPageState, WidgetsBindingObserver
 
-### Community 75 - "build"
-Cohesion: 0.33
-Nodes (6): _buildNoInfantBanner, _buildNoStart, build, Routes.contactResearchers, Routes.profileInfantDetail, Routes.profileMotherDetail
-
 ### Community 76 - "modules_page.dart"
-Cohesion: 0.11
-Nodes (19): _allModules, _api, build, _buildBody, createState, dispose, _errorMessage, _fetchModules (+11 more)
+Cohesion: 0.05
+Nodes (42): _allModules, _api, build, _buildBody, createState, dispose, _errorMessage, _fetchModules (+34 more)
 
 ### Community 77 - "weight_formatter.dart"
 Cohesion: 0.40
@@ -410,24 +394,24 @@ Cohesion: 0.50
 Nodes (3): package:flutter_test/flutter_test.dart, package:generasi_emas/core/weight_formatter.dart, main
 
 ## Knowledge Gaps
-- **1199 isolated node(s):** `navigatorKey`, `scaffoldMessengerKey`, `build`, `InfantAge`, `totalDays` (+1194 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1341 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **13 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **1198 isolated node(s):** `navigatorKey`, `scaffoldMessengerKey`, `build`, `InfantAge`, `totalDays` (+1193 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1344 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **12 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Routes` connect `Routes` to `profile_page.dart`, `nurse_agg_page.dart`, `notifications_page.dart`, `quiz_nurse_page.dart`, `login_page.dart`, `logbook_page.dart`, `routes.dart`, `baby_journal_page.dart`, `patient_detail_page.dart`, `brainstorming_nurse_page.dart`, `reset_password_page.dart`, `consent_pages.dart`, `profile_mother_detail_page.dart`, `profile_infant_detail_page.dart`, `activate_page.dart`, `register_page.dart`, `pretest_page.dart`, `patient_shell.dart`, `contact_researchers_page.dart`, `../core/storage.dart`, `quiz_page.dart`, `privacy_policy_page.dart`, `app.dart`, `../services/api_client.dart`, `posttest_page.dart`, `forgot_password_page.dart`, `father_link_page.dart`, `modules_page.dart`?**
-  _High betweenness centrality (0.067) - this node is a cross-community bridge._
-- **Why does `build` connect `build` to `../core/storage.dart`?**
-  _High betweenness centrality (0.010) - this node is a cross-community bridge._
-- **Why does `Generasi Emas App` connect `Generasi Emas App` to `manifest.json`?**
+- **Why does `Routes` connect `Routes` to `profile_page.dart`, `nurse_agg_page.dart`, `notifications_page.dart`, `posttest_page.dart`, `login_page.dart`, `logbook_page.dart`, `routes.dart`, `baby_journal_page.dart`, `patient_detail_page.dart`, `brainstorming_nurse_page.dart`, `reset_password_page.dart`, `consent_pages.dart`, `profile_mother_detail_page.dart`, `profile_infant_detail_page.dart`, `activate_page.dart`, `register_page.dart`, `pretest_page.dart`, `patient_shell.dart`, `contact_researchers_page.dart`, `../core/storage.dart`, `quiz_page.dart`, `privacy_policy_page.dart`, `../routes.dart`, `../services/api_client.dart`, `forgot_password_page.dart`, `father_link_page.dart`, `modules_page.dart`?**
+  _High betweenness centrality (0.071) - this node is a cross-community bridge._
+- **Why does `Firebase Integration` connect `Generasi Emas App` to `fcm_service.dart`, `main.dart`?**
   _High betweenness centrality (0.008) - this node is a cross-community bridge._
 - **What connects `navigatorKey`, `scaffoldMessengerKey`, `build` to the rest of the system?**
-  _1199 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _1198 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `profile_page.dart` be split into smaller, more focused modules?**
-  _Cohesion score 0.07142857142857142 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06666666666666667 - nodes in this community are weakly interconnected._
 - **Should `home_patient_page.dart` be split into smaller, more focused modules?**
   _Cohesion score 0.06060606060606061 - nodes in this community are weakly interconnected._
 - **Should `api_client.dart` be split into smaller, more focused modules?**
   _Cohesion score 0.020202020202020204 - nodes in this community are weakly interconnected._
+- **Should `nurse_agg_page.dart` be split into smaller, more focused modules?**
+  _Cohesion score 0.05405405405405406 - nodes in this community are weakly interconnected._
