@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../core/age_calculator.dart';
 import '../core/storage.dart';
 import '../routes.dart';
 import '../widgets/common.dart';
 import '../widgets/in_app_viewer_page.dart';
 import '../services/api_client.dart';
+import '../core/partner_sync.dart';
 
 class HomePatientPage extends StatefulWidget {
   const HomePatientPage({super.key});
@@ -20,6 +22,8 @@ class _HomePatientPageState extends State<HomePatientPage> {
   String _role = '';
   bool _isLoading = true;
   String? _errorMessage;
+  Map<String, dynamic>? _infantAnalytics;
+  Map<String, dynamic>? _pendingPartnerRequest;
 
   // Banner Carousel State
   int _currentBannerIndex = 0;
@@ -42,6 +46,7 @@ class _HomePatientPageState extends State<HomePatientPage> {
   @override
   void initState() {
     super.initState();
+    PartnerSync.notifier.addListener(_onPartnerSync);
     _initData();
 
     _bannerController = PageController(viewportFraction: 0.9);
@@ -50,9 +55,16 @@ class _HomePatientPageState extends State<HomePatientPage> {
 
   @override
   void dispose() {
+    PartnerSync.notifier.removeListener(_onPartnerSync);
     _bannerController.dispose();
     _bannerTimer?.cancel();
     super.dispose();
+  }
+
+  void _onPartnerSync() {
+    if (mounted) {
+      _loadPartnerStatusFromApi();
+    }
   }
 
   void _startAutoScroll() {
@@ -151,7 +163,40 @@ class _HomePatientPageState extends State<HomePatientPage> {
     await Future.wait([
       _loadProfileFromApi(),
       _loadBannersFromApi(),
+      _loadInfantSummaryFromApi(),
+      _loadPartnerStatusFromApi(),
     ]);
+  }
+
+  Future<void> _loadPartnerStatusFromApi() async {
+    try {
+      final res = await _api.getPartnerStatus();
+      if (!mounted) return;
+      if (res['role'] == 'mother' && res['pendingRequest'] != null) {
+        setState(() {
+          _pendingPartnerRequest = res['pendingRequest'] as Map<String, dynamic>;
+        });
+      } else {
+        setState(() {
+          _pendingPartnerRequest = null;
+        });
+      }
+    } catch (e) {
+      debugPrint('Gagal load partner status on home: $e');
+    }
+  }
+
+  Future<void> _loadInfantSummaryFromApi() async {
+    try {
+      final res = await _api.getInfantAnalytics('me');
+      if (mounted) {
+        setState(() {
+          _infantAnalytics = res;
+        });
+      }
+    } catch (e) {
+      debugPrint('Gagal load infant analytics on home: $e');
+    }
   }
 
   Future<void> _loadBannersFromApi() async {
@@ -245,6 +290,422 @@ class _HomePatientPageState extends State<HomePatientPage> {
             ? w
             : '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}')
         .join(' ');
+  }
+
+  Widget _buildPendingPartnerBanner() {
+    final req = _pendingPartnerRequest!;
+    final reqName = req['requesterName'] as String? ?? 'Ayah';
+    final reqPhone = req['requesterPhone'] as String? ?? '-';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF3C7), // Amber container
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFF59E0B), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFDE68A),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.supervised_user_circle_rounded,
+                  color: Color(0xFFD97706),
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Permintaan Penautan Akun',
+                      style: TextStyle(
+                        fontFamily: 'Nunito',
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        color: Color(0xFF92400E),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$reqName ($reqPhone) ingin menautkan akun untuk memantau tumbuh kembang bayi bersama.',
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF78350F),
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFD97706),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: () => _showPartnerApprovalBottomSheet(req),
+              icon: const Icon(Icons.check_circle_outline, size: 20),
+              label: const Text(
+                'Tinjau Permintaan',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPartnerApprovalBottomSheet(Map<String, dynamic> request) {
+    final requestId = request['id'] as String;
+    final reqName = request['requesterName'] as String? ?? 'Ayah';
+    final reqPhone = request['requesterPhone'] as String? ?? '-';
+    final rawDate = request['createdAt'];
+    DateTime? dt;
+    if (rawDate != null) {
+      dt = DateTime.tryParse(rawDate.toString())?.toLocal();
+    }
+    final dateStr = dt != null ? '${DateFormat('d MMMM yyyy, HH:mm', 'id_ID').format(dt)} WIB' : '-';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        bool isResponding = false;
+
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 16,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Handle bar
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFCBD5E1),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Icon
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFD1FAE5),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.family_restroom_rounded,
+                      color: Color(0xFF10B981),
+                      size: 32,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  const Text(
+                    'Permintaan Penautan Pasangan',
+                    style: TextStyle(
+                      fontFamily: 'Nunito',
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                      color: Color(0xFF0F172A),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Akun Ayah meminta izin untuk memantau data perkembangan bayi Anda.',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 13,
+                      color: Color(0xFF64748B),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Info card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'DATA PEMOHON',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                            letterSpacing: 0.5,
+                            color: Color(0xFF475569),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const SizedBox(
+                              width: 120,
+                              child: Text(
+                                'Nama Ayah',
+                                style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Color(0xFF64748B)),
+                              ),
+                            ),
+                            const Text(': ', style: TextStyle(fontFamily: 'Inter', color: Color(0xFF64748B))),
+                            Expanded(
+                              child: Text(
+                                reqName,
+                                style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            const SizedBox(
+                              width: 120,
+                              child: Text(
+                                'Nomor Handphone',
+                                style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Color(0xFF64748B)),
+                              ),
+                            ),
+                            const Text(': ', style: TextStyle(fontFamily: 'Inter', color: Color(0xFF64748B))),
+                            Expanded(
+                              child: Text(
+                                reqPhone,
+                                style: const TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            const SizedBox(
+                              width: 120,
+                              child: Text(
+                                'Waktu Pengajuan',
+                                style: TextStyle(fontFamily: 'Inter', fontSize: 13, color: Color(0xFF64748B)),
+                              ),
+                            ),
+                            const Text(': ', style: TextStyle(fontFamily: 'Inter', color: Color(0xFF64748B))),
+                            Expanded(
+                              child: Text(
+                                dateStr,
+                                style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Color(0xFF0F172A)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Clinical disclaimer
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE0F2FE),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFBAE6FD)),
+                    ),
+                    child: const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.info_outline, color: Color(0xFF0EA5E9), size: 18),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Dengan menyetujui, Ayah dapat melihat data profil bayi, grafik pertumbuhan KMS, dan logbook harian dalam mode pantau (Read-Only).',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 12,
+                              color: Color(0xFF072846),
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Action buttons
+                  if (isResponding)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Center(
+                        child: CircularProgressIndicator(color: Color(0xFF10B981)),
+                      ),
+                    )
+                  else
+                    Row(
+                      children: [
+                        // Button Tolak (Min 48dp touch target)
+                        Expanded(
+                          child: SizedBox(
+                            height: 48,
+                            child: OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFFEF4444),
+                                side: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              onPressed: () async {
+                                setSheetState(() => isResponding = true);
+                                try {
+                                  await _api.respondPartnerRequest(requestId: requestId, approve: false);
+                                  if (sheetCtx.mounted) Navigator.pop(sheetCtx);
+                                  if (mounted) {
+                                    _showSnackBar('Permintaan penautan ditolak.', isError: false);
+                                    _initData();
+                                    PartnerSync.notify();
+                                  }
+                                } catch (e) {
+                                  if (mounted) {
+                                    setSheetState(() => isResponding = false);
+                                    if (e is ApiError && (e.status == 404 || e.message.contains('sudah diproses') || e.message.contains('tidak ditemukan'))) {
+                                      if (sheetCtx.mounted) Navigator.pop(sheetCtx);
+                                      _initData();
+                                      PartnerSync.notify();
+                                      _showSnackBar('Permintaan penautan ini sudah diproses.', isError: false);
+                                    } else {
+                                      _showSnackBar('Gagal menolak permintaan: $e', isError: true);
+                                    }
+                                  }
+                                }
+                              },
+                              child: const Text(
+                                'Tolak',
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Button Setujui (Min 48dp touch target)
+                        Expanded(
+                          child: SizedBox(
+                            height: 48,
+                            child: FilledButton(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF10B981),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              onPressed: () async {
+                                setSheetState(() => isResponding = true);
+                                try {
+                                  await _api.respondPartnerRequest(requestId: requestId, approve: true);
+                                  if (sheetCtx.mounted) Navigator.pop(sheetCtx);
+                                  if (mounted) {
+                                    _showSnackBar('Berhasil! Akun Ayah kini terhubung.', isError: false);
+                                    _initData();
+                                    PartnerSync.notify();
+                                  }
+                                } catch (e) {
+                                  if (mounted) {
+                                    setSheetState(() => isResponding = false);
+                                    if (e is ApiError && (e.status == 404 || e.message.contains('sudah diproses') || e.message.contains('tidak ditemukan'))) {
+                                      if (sheetCtx.mounted) Navigator.pop(sheetCtx);
+                                      _initData();
+                                      PartnerSync.notify();
+                                      _showSnackBar('Permintaan penautan ini sudah disetujui sebelumnya.', isError: false);
+                                    } else {
+                                      _showSnackBar('Gagal menyetujui permintaan: $e', isError: true);
+                                    }
+                                  }
+                                }
+                              },
+                              child: const Text(
+                                'Setujui',
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -390,6 +851,13 @@ class _HomePatientPageState extends State<HomePatientPage> {
                     child: ListView(
                       padding: const EdgeInsets.symmetric(vertical: 20),
                       children: [
+                        // Banner Permintaan Penautan Pasangan (Role Ibu)
+                        if (_pendingPartnerRequest != null)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 20, right: 20, bottom: 16),
+                            child: _buildPendingPartnerBanner(),
+                          ),
+
                         // Hero Welcome Banner with "Panduan" CTA Placeholder
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -551,121 +1019,10 @@ class _HomePatientPageState extends State<HomePatientPage> {
                         ),
                         const SizedBox(height: 24),
 
-                        // [PLACEHOLDER] Section: Ringkasan Si Kecil (Dasbor Analitik Anak Placeholder)
+                        // Section: Ringkasan Si Kecil (Rich Clinical Summary Widget)
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 20),
-                          child: Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.03),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    const Text(
-                                      'Ringkasan Si Kecil',
-                                      style: TextStyle(
-                                        fontFamily: 'Nunito',
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF0F172A),
-                                      ),
-                                    ),
-                                    InkWell(
-                                      onTap: () => Navigator.pushNamed(context, Routes.profileInfantDetail),
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: const Padding(
-                                        padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                        child: Text(
-                                          'Detail >',
-                                          style: TextStyle(
-                                            fontFamily: 'Inter',
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                            color: Color(0xFF10B981),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                Row(
-                                  children: [
-                                    Container(
-                                      width: 44,
-                                      height: 44,
-                                      decoration: const BoxDecoration(
-                                        color: Color(0xFFD1FAE5),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      alignment: Alignment.center,
-                                      child: const Icon(
-                                        Icons.child_care_rounded,
-                                        color: Color(0xFF064E3B),
-                                        size: 24,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: const [
-                                          Text(
-                                            'Si Kecil',
-                                            style: TextStyle(
-                                              fontFamily: 'Nunito',
-                                              fontSize: 15,
-                                              fontWeight: FontWeight.w700,
-                                              color: Color(0xFF0F172A),
-                                            ),
-                                          ),
-                                          SizedBox(height: 2),
-                                          Text(
-                                            'Pemantauan Tumbuh Kembang Aktif',
-                                            style: TextStyle(
-                                              fontFamily: 'Inter',
-                                              fontSize: 12,
-                                              color: Color(0xFF64748B),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFD1FAE5),
-                                        borderRadius: BorderRadius.circular(999),
-                                        border: Border.all(color: const Color(0xFFA7F3D0)),
-                                      ),
-                                      child: const Text(
-                                        'Sehat',
-                                        style: TextStyle(
-                                          fontFamily: 'Inter',
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w700,
-                                          color: Color(0xFF064E3B),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
+                          child: _buildRingkasanSiKecilCard(),
                         ),
                         const SizedBox(height: 24),
 
@@ -806,6 +1163,312 @@ class _HomePatientPageState extends State<HomePatientPage> {
                     ),
                   ),
                 ),
+    );
+  }
+
+  Widget _buildRingkasanSiKecilCard() {
+    final infant = (_infantAnalytics?['infant'] as Map?)?.cast<String, dynamic>() ?? {};
+    final latestMeasurement = (_infantAnalytics?['latestMeasurement'] as Map?)?.cast<String, dynamic>() ?? {};
+    final stuntingStatus = (_infantAnalytics?['stuntingStatus'] as Map?)?.cast<String, dynamic>() ?? {};
+    final weightStatus = (_infantAnalytics?['weightStatus'] as Map?)?.cast<String, dynamic>() ?? {};
+
+    final rawInfantName = (infant['name'] as String?)?.trim();
+    final hasBabyData = rawInfantName != null && rawInfantName.isNotEmpty;
+    final babyName = hasBabyData ? rawInfantName : 'Nama Bayi Belum Diisi';
+
+    // Usia dinamis dari currentAge atau infant['birthDate']
+    String ageStr = (_infantAnalytics?['currentAge']?['formatted'] as String?) ?? '';
+    if (ageStr.isEmpty && infant['birthDate'] != null) {
+      final parsedDob = ApiClient.parseDate(infant['birthDate']);
+      if (parsedDob != null) {
+        ageStr = InfantAge.calculate(parsedDob).formatted;
+      }
+    }
+    if (ageStr.isEmpty) ageStr = (infant['age'] as String?) ?? '-';
+
+    final gender = (infant['babyGender'] as String?) ?? (infant['gender'] as String?) ?? '-';
+    final isMale = gender.toLowerCase().contains('laki') || gender.toLowerCase().contains('male');
+
+    final stuntingLabel = (stuntingStatus['label'] as String?) ?? 'Belum Ada Data';
+    final rawStuntingCat = (stuntingStatus['category'] as String?) ?? '';
+    final weightLabel = (weightStatus['label'] as String?) ?? 'Belum Ada Data';
+    final rawWeightCat = (weightStatus['category'] as String?) ?? '';
+
+    final zLength = latestMeasurement['zScoreLength'];
+    final zWeight = latestMeasurement['zScoreWeight'];
+    final lastDate = latestMeasurement['date'] as String?;
+
+    Color stuntingColor = const Color(0xFF10B981);
+    Color stuntingBg = const Color(0xFFD1FAE5);
+    IconData stuntingIcon = Icons.check_circle_rounded;
+    if (rawStuntingCat == 'SEVERELY_STUNTED' || stuntingLabel.contains('Sangat Pendek')) {
+      stuntingColor = const Color(0xFFDC2626);
+      stuntingBg = const Color(0xFFFEE2E2);
+      stuntingIcon = Icons.error_outline_rounded;
+    } else if (rawStuntingCat == 'STUNTED' || stuntingLabel.contains('Pendek')) {
+      stuntingColor = const Color(0xFFD97706);
+      stuntingBg = const Color(0xFFFEF3C7);
+      stuntingIcon = Icons.warning_amber_rounded;
+    } else if (rawStuntingCat == 'TALL' || stuntingLabel.contains('Tinggi')) {
+      stuntingColor = const Color(0xFF0284C7);
+      stuntingBg = const Color(0xFFE0F2FE);
+      stuntingIcon = Icons.trending_up_rounded;
+    }
+
+    Color weightColor = const Color(0xFF10B981);
+    Color weightBg = const Color(0xFFD1FAE5);
+    if (rawWeightCat == 'SEVERELY_UNDERWEIGHT' || weightLabel.contains('Sangat Kurang')) {
+      weightColor = const Color(0xFFDC2626);
+      weightBg = const Color(0xFFFEE2E2);
+    } else if (rawWeightCat == 'UNDERWEIGHT' || weightLabel.contains('Kurang')) {
+      weightColor = const Color(0xFFD97706);
+      weightBg = const Color(0xFFFEF3C7);
+    } else if (rawWeightCat == 'OVERWEIGHT' || weightLabel.contains('Lebih')) {
+      weightColor = const Color(0xFF0284C7);
+      weightBg = const Color(0xFFE0F2FE);
+    }
+
+    return InkWell(
+      onTap: () async {
+        await Navigator.pushNamed(context, Routes.infantAnalytics);
+        if (mounted) {
+          _loadInfantSummaryFromApi();
+        }
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x080F172A),
+              blurRadius: 10,
+              offset: Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Card Header
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: const [
+                Text(
+                  'Ringkasan Si Kecil',
+                  style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                Text(
+                  'Lihat Grafik & Analisis >',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF10B981),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+
+            // Middle Section: Avatar + Identity + Demographic details
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Avatar
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: isMale ? const Color(0xFFE0F2FE) : const Color(0xFFFCE7F3),
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(
+                    Icons.child_care_rounded,
+                    color: isMale ? const Color(0xFF0284C7) : const Color(0xFFDB2777),
+                    size: 26,
+                  ),
+                ),
+                const SizedBox(width: 12),
+
+                // Name, Age & Gender
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        babyName,
+                        style: const TextStyle(
+                          fontFamily: 'Nunito',
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isMale ? const Color(0xFFE0F2FE) : const Color(0xFFFCE7F3),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              isMale ? 'Laki-laki' : (gender == '-' ? '-' : 'Perempuan'),
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: isMale ? const Color(0xFF0369A1) : const Color(0xFFBE185D),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Text('•', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10)),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              ageStr,
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF059669),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Divider(height: 1, color: Color(0xFFF1F5F9)),
+            const SizedBox(height: 10),
+
+            // Clinical Badges: PB/U Stunting Chip + BB/U Weight Badge + Z-Score (Responsive Wrap)
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                // PB/U Stunting Chip
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: stuntingBg,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: stuntingColor.withValues(alpha: 0.2)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(stuntingIcon, size: 13, color: stuntingColor),
+                      const SizedBox(width: 4),
+                      Text(
+                        stuntingLabel,
+                        style: TextStyle(
+                          fontFamily: 'Nunito',
+                          fontWeight: FontWeight.w800,
+                          fontSize: 11,
+                          color: stuntingColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // BB/U Weight Chip
+                if (rawWeightCat.isNotEmpty && weightLabel != 'Belum Ada Data')
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: weightBg,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: weightColor.withValues(alpha: 0.2)),
+                    ),
+                    child: Text(
+                      weightLabel,
+                      style: TextStyle(
+                        fontFamily: 'Nunito',
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11,
+                        color: weightColor,
+                      ),
+                    ),
+                  ),
+
+                // Z-Score Badges (BB & PB)
+                if (zWeight != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'Z-BB: $zWeight SD',
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF475569),
+                      ),
+                    ),
+                  ),
+                if (zLength != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'Z-PB: $zLength SD',
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF475569),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+
+            if (lastDate != null && (zLength != null || zWeight != null)) ...[
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'Diukur: $lastDate',
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 10,
+                    color: Color(0xFF94A3B8),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

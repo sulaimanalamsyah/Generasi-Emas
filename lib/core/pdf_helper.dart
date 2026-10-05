@@ -52,32 +52,6 @@ class PdfHelper {
     return url;
   }
 
-  /// Returns a direct download URL if available (e.g. for Google Drive or direct PDF).
-  static String? getDirectDownloadUrl(String? rawUrl) {
-    if (rawUrl == null || rawUrl.trim().isEmpty) return null;
-    final url = rawUrl.trim();
-
-    final gDriveId = extractGoogleDriveFileId(url);
-    if (gDriveId != null && gDriveId.isNotEmpty) {
-      return 'https://drive.google.com/uc?export=download&id=$gDriveId';
-    }
-
-    if (RegExp(r'\.pdf(\?.*)?$', caseSensitive: false).hasMatch(url)) {
-      return url;
-    }
-
-    return null;
-  }
-
-  /// Determines if the given URL points to a PDF or Google Drive document.
-  static bool isPdfOrDriveDoc(String? url) {
-    if (url == null || url.trim().isEmpty) return false;
-    final clean = url.trim().toLowerCase();
-    return clean.contains('drive.google.com') ||
-        clean.contains('.pdf') ||
-        clean.contains('docs.google.com');
-  }
-
   /// Determines if the URL is an interactive web-based HTML5 Flipbook.
   static bool isInteractiveFlipbookUrl(String? url) {
     if (url == null || url.trim().isEmpty) return false;

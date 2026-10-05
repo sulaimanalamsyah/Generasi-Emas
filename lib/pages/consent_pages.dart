@@ -296,13 +296,26 @@ class _ConsentRegisterPageState extends State<ConsentRegisterPage> {
     setState(() => _submitting = true);
     final api = ApiClient();
     try {
-      await api.register(
+      final res = await api.register(
         name: name,
         email: email,
         phone: phone,
         password: password,
         role: role,
       );
+
+      // Tangani akun yang sudah ada namun belum aktif
+      final resCode = (res is Map && res['code'] is String) ? res['code'] as String : null;
+      if (resCode == 'ACCOUNT_NOT_ACTIVATED') {
+        await _showDialogInfo(
+          "Akun Belum Aktif",
+          "Nomor atau email ini sudah terdaftar namun belum diaktivasi. Silakan masuk atau aktivasi akun Anda dari halaman awal.",
+          isError: false,
+        );
+        if (!mounted) return;
+        Navigator.pushNamedAndRemoveUntil(context, Routes.start, (route) => false);
+        return;
+      }
 
       try {
         await api.sendOtpWhatsApp(phone);
@@ -322,13 +335,24 @@ class _ConsentRegisterPageState extends State<ConsentRegisterPage> {
         final detail = e.detail;
         final code = (detail is Map && detail['code'] is String) ? detail['code'] as String : null;
 
-        if (code == 'ACCOUNT_ALREADY_ACTIVE') {
-          await _showDialogInfo("Info Akun", "Akun sudah aktif. Silakan langsung login.", isError: true);
+        if (code == 'ACCOUNT_NOT_ACTIVATED') {
+          await _showDialogInfo(
+            "Akun Belum Aktif",
+            "Nomor atau email ini sudah terdaftar namun belum diaktivasi. Silakan masuk atau aktivasi akun Anda dari halaman awal.",
+            isError: false,
+          );
           if (!mounted) return;
-          Navigator.pushNamedAndRemoveUntil(context, Routes.login, (route) => false);
+          Navigator.pushNamedAndRemoveUntil(context, Routes.start, (route) => false);
           return;
         }
-        _showDialogInfo("Gagal Register", e.toString(), isError: true);
+
+        if (code == 'ACCOUNT_ALREADY_ACTIVE') {
+          await _showDialogInfo("Info Akun", "Akun sudah terdaftar dan aktif. Silakan masuk melalui halaman awal.", isError: false);
+          if (!mounted) return;
+          Navigator.pushNamedAndRemoveUntil(context, Routes.start, (route) => false);
+          return;
+        }
+        _showDialogInfo("Gagal Register", e.userFriendlyMessage, isError: true);
       } else {
         _showDialogInfo("Gagal Register", e.toString(), isError: true);
       }

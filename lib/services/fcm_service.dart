@@ -1,7 +1,9 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'api_client.dart';
+import '../core/storage.dart';
 import '../app.dart';
 import '../routes.dart';
 
@@ -56,6 +58,16 @@ class FcmService {
               AndroidFlutterLocalNotificationsPlugin>()
           ?.createNotificationChannel(channel);
 
+      // 2.5 Sinkronisasi penarikan token FCM offline yang tertunda jika ada
+      await syncPendingTokenRevocation();
+
+      // Pasang listener konektivitas agar otomatis sinkron saat internet kembali aktif
+      Connectivity().onConnectivityChanged.listen((results) {
+        if (results.any((r) => r != ConnectivityResult.none)) {
+          syncPendingTokenRevocation();
+        }
+      });
+
       // 3. Ambil Token & Kirim ke Backend
       final fcmToken = await _firebaseMessaging.getToken();
       debugPrint("🔥 FCM Token: $fcmToken");
@@ -69,6 +81,13 @@ class FcmService {
 
       // 4. Handle Foreground Notification (Saat aplikasi dibuka)
       FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+        // Guard: Jika pengguna saat ini tidak memiliki sesi (sudah logout), abaikan notifikasi foreground
+        final token = await Prefs.getToken();
+        if (token == null) {
+          debugPrint('🔕 Abaikan notifikasi foreground karena pengguna sudah logout');
+          return;
+        }
+
         debugPrint('🔔 Pesan Foreground: ${message.notification?.title}');
 
         RemoteNotification? notification = message.notification;
@@ -174,6 +193,24 @@ class FcmService {
     } catch (e) {
       debugPrint("❌ Gagal disable notif: $e");
       rethrow;
+    }
+  }
+
+  /// Sinkronisasi pencabutan token FCM yang tertunda akibat logout dalam kondisi offline
+  Future<void> syncPendingTokenRevocation() async {
+    try {
+      final pendingToken = await Prefs.getPendingFcmRevocation();
+      if (pendingToken != null && pendingToken.trim().isNotEmpty) {
+        debugPrint("🔄 Sinkronisasi penarikan token FCM offline yang tertunda...");
+        await _api.revokeFcmTokenPublic(pendingToken.trim());
+        await Prefs.clearPendingFcmRevocation();
+        try {
+          await _firebaseMessaging.deleteToken();
+        } catch (_) {}
+        debugPrint("✅ Token FCM offline berhasil dicabut dari backend & perangkat");
+      }
+    } catch (e) {
+      debugPrint("⚠️ Gagal sinkronisasi pending FCM revocation (akan dicoba lagi nanti): $e");
     }
   }
 }

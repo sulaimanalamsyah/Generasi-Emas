@@ -4,6 +4,7 @@ import 'core/constants.dart';
 import 'routes.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 class GenerasiEmasApp extends StatelessWidget {
   const GenerasiEmasApp({super.key});
@@ -11,9 +12,10 @@ class GenerasiEmasApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Generasi Emas',
+      title: 'ENI Care',
       debugShowCheckedModeBanner: false,
       navigatorKey: navigatorKey,
+      scaffoldMessengerKey: scaffoldMessengerKey,
 
       // [TAMBAHAN] Konfigurasi Localization
       localizationsDelegates: const [

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/storage.dart';
 import '../../services/api_client.dart';
-import '../../services/auth_service.dart';
 import '../../routes.dart';
 import '../../widgets/common.dart';
 import 'nurse_assign_patient_page.dart';
@@ -15,7 +14,6 @@ class HomeNursePage extends StatefulWidget {
 
 class _HomeNursePageState extends State<HomeNursePage> {
   final _api = ApiClient();
-  final _auth = AuthService();
   bool _loading = true;
   int _patientCount = 0;
   String _displayName = 'Perawat';
@@ -140,7 +138,7 @@ class _HomeNursePageState extends State<HomeNursePage> {
 
     if (!ok) return;
 
-    await _auth.logout();
+    await _api.logout();
 
     if (!mounted) return;
     Navigator.pushNamedAndRemoveUntil(context, Routes.start, (_) => false);

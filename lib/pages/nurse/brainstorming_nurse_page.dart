@@ -4,7 +4,6 @@ import '../../services/api_client.dart';
 import '../../routes.dart';
 import '../video_detail_page.dart';
 import '../module_detail_page.dart';
-import '../reference_detail_page.dart';
 
 enum ResourceType { all, video, module, reference }
 
@@ -78,74 +77,40 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
     });
 
     try {
-      final results = await Future.wait([
-        _api.getContent('BRAINSTORM', 'NURSE'),
-        _api.getContent('MODULE', 'NURSE'),
-        _api.getReferences(),
-      ]);
-
-      final rawVideos = results[0];
-      final rawModules = results[1];
-      final rawRefs = results[2];
+      // Mengambil materi brainstorming perawat dari endpoint terisolasi (bebas referensi pasien)
+      final rawModules = await _api.getNurseBrainstorming();
 
       final List<EducationalResource> parsed = [];
 
-      // 1. Parse Video Items
-      for (final g in rawVideos) {
-        final gTitle = (g['title'] as String?) ?? 'Video Edukasi';
-        final items = (g['items'] as List?) ?? [];
-        for (final it in items) {
-          parsed.add(
-            EducationalResource(
-              id: 'video_${it['id']}',
-              title: (it['title'] as String?) ?? 'Video',
-              description: it['description'] as String?,
-              url: (it['url'] as String?) ?? '',
-              type: ResourceType.video,
-              category: gTitle,
-              groupTitle: gTitle,
-              relatedItems: items.map((e) => (e as Map).cast<String, dynamic>()).toList(),
-            ),
-          );
-        }
-      }
-
-      // 2. Parse Module Flipbook Items
       for (final g in rawModules) {
-        final gTitle = (g['title'] as String?) ?? 'Modul Edukasi';
+        final gTitle = (g['title'] as String?) ?? 'Brainstorming Perawat';
         final items = (g['items'] as List?) ?? [];
+        final itemsList = items.map((e) => (e as Map).cast<String, dynamic>()).toList();
+
         for (final it in items) {
+          final kind = (it['kind'] as String?)?.toUpperCase() ?? 'VIDEO';
+          ResourceType type;
+          if (kind == 'PDF') {
+            type = ResourceType.module;
+          } else if (kind == 'LINK') {
+            type = ResourceType.reference;
+          } else {
+            type = ResourceType.video;
+          }
+
           parsed.add(
             EducationalResource(
-              id: 'module_${it['id']}',
-              title: (it['title'] as String?) ?? 'Modul',
+              id: '${type.name}_${it['id']}',
+              title: (it['title'] as String?) ?? 'Materi Brainstorming',
               description: it['description'] as String?,
               url: (it['url'] as String?) ?? '',
-              type: ResourceType.module,
+              type: type,
               category: gTitle,
               groupTitle: gTitle,
-              relatedItems: items.map((e) => (e as Map).cast<String, dynamic>()).toList(),
+              relatedItems: itemsList,
             ),
           );
         }
-      }
-
-      // 3. Parse Reference Items
-      for (final r in rawRefs) {
-        parsed.add(
-          EducationalResource(
-            id: 'ref_${r['id']}',
-            title: (r['title'] as String?) ?? 'Referensi',
-            url: (r['url'] as String?) ?? '',
-            type: ResourceType.reference,
-            author: r['author'] as String?,
-            year: r['year']?.toString(),
-            category: (r['category'] as String?) ?? 'JURNAL',
-            summary: r['summary'] as String?,
-            doi: r['doi'] as String?,
-            relatedItems: rawRefs.map((e) => (e as Map).cast<String, dynamic>()).toList(),
-          ),
-        );
       }
 
       if (!mounted) return;
@@ -237,16 +202,14 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
       case ResourceType.reference:
         Navigator.pushNamed(
           context,
-          Routes.referenceDetail,
-          arguments: ReferenceDetailArguments(
+          Routes.moduleDetail,
+          arguments: ModuleDetailArguments(
             title: item.title,
             url: item.url,
-            author: item.author,
-            year: item.year,
-            category: item.category,
-            summary: item.summary,
-            doi: item.doi,
-            relatedReferences: item.relatedItems,
+            description: item.description,
+            moduleTitle: item.groupTitle,
+            kind: 'LINK',
+            relatedItems: item.relatedItems,
           ),
         );
         break;
@@ -281,7 +244,8 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
           IconButton(
             tooltip: 'Perbarui Materi',
             icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
-            onPressed: _loadData,
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            onPressed: _loading ? null : _loadData,
           ),
         ],
       ),
@@ -296,7 +260,7 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
                 onChanged: _onSearchChanged,
                 style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF0F172A)),
                 decoration: InputDecoration(
-                  hintText: 'Cari video, modul flipbook, atau jurnal...',
+                  hintText: 'Cari video, modul flipbook, atau artikel...',
                   hintStyle: const TextStyle(fontFamily: 'Inter', color: Color(0xFF94A3B8), fontSize: 13),
                   prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF94A3B8)),
                   suffixIcon: _searchCtrl.text.isNotEmpty
@@ -324,9 +288,9 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
               ),
             ),
 
-            // Horizontal Filter Chips
+            // Horizontal Filter Chips (min 48dp height container for touch target compliance)
             SizedBox(
-              height: 42,
+              height: 48,
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -337,7 +301,7 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
                   const SizedBox(width: 8),
                   _buildFilterChip('Modul Flipbook', ResourceType.module, _countFor(ResourceType.module), Icons.menu_book_rounded),
                   const SizedBox(width: 8),
-                  _buildFilterChip('Artikel & Jurnal', ResourceType.reference, _countFor(ResourceType.reference), Icons.article_outlined),
+                  _buildFilterChip('Artikel & Tautan', ResourceType.reference, _countFor(ResourceType.reference), Icons.article_outlined),
                 ],
               ),
             ),
@@ -365,49 +329,52 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
   Widget _buildFilterChip(String label, ResourceType type, int count, IconData icon) {
     final isSelected = _selectedType == type;
 
-    return InkWell(
-      onTap: () {
-        setState(() => _selectedType = type);
-      },
-      borderRadius: BorderRadius.circular(999),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF064E3B) : Colors.white,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: isSelected ? const Color(0xFF064E3B) : const Color(0xFFE2E8F0),
+    return Center(
+      child: InkWell(
+        onTap: () {
+          setState(() => _selectedType = type);
+        },
+        borderRadius: BorderRadius.circular(999),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          constraints: const BoxConstraints(minHeight: 44, minWidth: 48),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFF064E3B) : Colors.white,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: isSelected ? const Color(0xFF064E3B) : const Color(0xFFE2E8F0),
+            ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: const Color(0xFF064E3B).withValues(alpha: 0.15),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
           ),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: const Color(0xFF064E3B).withValues(alpha: 0.15),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
-              : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 16,
-              color: isSelected ? Colors.white : const Color(0xFF64748B),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              '$label ($count)',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                color: isSelected ? Colors.white : const Color(0xFF475569),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: isSelected ? Colors.white : const Color(0xFF64748B),
               ),
-            ),
-          ],
+              const SizedBox(width: 6),
+              Text(
+                '$label ($count)',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  color: isSelected ? Colors.white : const Color(0xFF475569),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -452,7 +419,7 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
               ),
               const SizedBox(height: 20),
               SizedBox(
-                height: 44,
+                height: 48,
                 child: ElevatedButton.icon(
                   onPressed: _loadData,
                   style: ElevatedButton.styleFrom(
@@ -502,13 +469,13 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Tidak ada video, modul, atau jurnal yang cocok dengan kata kunci "${_searchCtrl.text.trim()}".',
+                  'Tidak ada video, modul, atau artikel yang cocok dengan kata kunci "${_searchCtrl.text.trim()}".',
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF64748B), height: 1.4),
                 ),
                 const SizedBox(height: 22),
                 SizedBox(
-                  height: 44,
+                  height: 48,
                   child: OutlinedButton.icon(
                     onPressed: () {
                       _searchCtrl.clear();
@@ -547,7 +514,7 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
               ),
               const SizedBox(height: 18),
               const Text(
-                'Belum Ada Materi',
+                'Belum Ada Materi Brainstorming',
                 style: TextStyle(
                   fontFamily: 'Nunito',
                   fontSize: 18,
@@ -557,7 +524,7 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
               ),
               const SizedBox(height: 6),
               const Text(
-                'Materi edukasi klinis dan referensi jurnal akan ditampilkan di sini.',
+                'Belum ada materi brainstorming perawat yang ditambahkan oleh admin.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF64748B), height: 1.4),
               ),
@@ -610,8 +577,8 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
         typeBg = const Color(0xFFEEF2FF);
         typeColor = const Color(0xFF4F46E5);
         typeIcon = Icons.article_rounded;
-        typeLabel = item.category ?? 'Jurnal Medis';
-        actionLabel = 'Lihat Jurnal';
+        typeLabel = 'Artikel & Tautan';
+        actionLabel = 'Buka Tautan';
         actionIcon = Icons.open_in_new_rounded;
         break;
       case ResourceType.all:

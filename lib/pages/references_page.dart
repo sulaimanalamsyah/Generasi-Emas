@@ -152,6 +152,14 @@ class _ReferencesPageState extends State<ReferencesPage> {
             fontFamily: 'Nunito',
           ),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
+            tooltip: 'Perbarui Referensi',
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            onPressed: _isLoading ? null : _fetchReferences,
+          ),
+        ],
         bottom: const PreferredSize(
           preferredSize: Size.fromHeight(1),
           child: Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),

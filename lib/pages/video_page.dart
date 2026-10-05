@@ -154,6 +154,14 @@ class _VideoPageState extends State<VideoPage> {
             fontFamily: 'Nunito',
           ),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
+            tooltip: 'Perbarui Video',
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            onPressed: _isLoading ? null : _fetchModules,
+          ),
+        ],
       ),
       body: _buildBody(),
     );

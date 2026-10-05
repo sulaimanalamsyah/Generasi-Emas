@@ -189,6 +189,23 @@ class _BabyJournalPageState extends State<BabyJournalPage> {
     });
   }
 
+  Map<String, dynamic>? _getEntryForDate(DateTime date) {
+    final target = DateTime(date.year, date.month, date.day);
+    for (final it in _items) {
+      final d = ApiClient.parseDate(it['date']);
+      if (d == null) continue;
+      final loc = d.toLocal();
+      if (loc.year == target.year && loc.month == target.month && loc.day == target.day) {
+        return it;
+      }
+    }
+    return null;
+  }
+
+  Map<String, dynamic>? _getTodayEntry() {
+    return _getEntryForDate(DateTime.now().toLocal());
+  }
+
   Set<String> get _markedDates {
     final set = <String>{};
     for (final it in _items) {
@@ -279,14 +296,17 @@ class _BabyJournalPageState extends State<BabyJournalPage> {
     }
   }
 
-  Future<void> _openAddJournalSheet() async {
+  Future<void> _openAddJournalSheet({DateTime? initialDate}) async {
     if (_isObserver) return;
 
     final result = await showModalBottomSheet<_JournalFormResult>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => const _AddJournalSheet(),
+      builder: (ctx) => _AddJournalSheet(
+        initialDate: initialDate,
+        existingItems: _items,
+      ),
     );
     if (result == null) return;
 
@@ -304,7 +324,7 @@ class _BabyJournalPageState extends State<BabyJournalPage> {
       );
       if (!mounted) return;
 
-      await _showDialogInfo("Berhasil", "Jurnal harian berhasil ditambahkan.");
+      await _showDialogInfo("Berhasil", "Jurnal harian berhasil disimpan.");
       await _load();
     } catch (e) {
       final msg = e.toString().toLowerCase();
@@ -317,17 +337,235 @@ class _BabyJournalPageState extends State<BabyJournalPage> {
         if (e is ApiError && e.status == 0) {
           _showDialogInfo("Gagal Simpan", "Tidak ada internet. Jurnal gagal disimpan.", isError: true);
         } else {
-          _showDialogInfo("Gagal", "Gagal menambah jurnal: $e", isError: true);
+          _showDialogInfo("Gagal", "Gagal menyimpan jurnal: $e", isError: true);
         }
       }
     }
   }
 
+  void _showAddOrEditChoiceSheet(Map<String, dynamic> todayEntry) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final now = DateTime.now().toLocal();
+        final formattedToday = DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(now);
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFCBD5E1),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const Text(
+                'Jurnal Hari Ini Sudah Ada',
+                style: TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Anda sudah memiliki catatan untuk $formattedToday. Silakan pilih opsi:',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 13,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+              const SizedBox(height: 18),
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _openEditJournalSheet(todayEntry, isTodayEdit: true);
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0FDF4),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFBBF7D0)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFD1FAE5),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.edit_note_rounded,
+                          color: Color(0xFF10B981),
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Ubah Jurnal Hari Ini',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF0F172A),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Perbarui catatan aktivitas si kecil untuk hari ini',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 12,
+                                color: Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _openAddJournalSheet();
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE2E8F0),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.edit_calendar_rounded,
+                          color: Color(0xFF475569),
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Catat Jurnal untuk Tanggal Lain',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF0F172A),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Pilih tanggal kemarin atau tanggal lain yang terlewat',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 12,
+                                color: Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF64748B),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: const Text(
+                    'Batal',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _handleJournalFabTap() {
+    if (_isObserver) return;
+
+    if (_selectedCalendarDate != null) {
+      final entry = _getEntryForDate(_selectedCalendarDate!);
+      if (entry != null) {
+        _openEditJournalSheet(entry);
+      } else {
+        _openAddJournalSheet(initialDate: _selectedCalendarDate);
+      }
+      return;
+    }
+
+    final todayEntry = _getTodayEntry();
+    if (todayEntry != null) {
+      _showAddOrEditChoiceSheet(todayEntry);
+    } else {
+      _openAddJournalSheet(initialDate: DateTime.now());
+    }
+  }
+
   // ====== VIEW / EDIT JURNAL ======
 
-  Future<void> _openEditJournalSheet(Map<String, dynamic> item) async {
+  Future<void> _openEditJournalSheet(Map<String, dynamic> item, {bool? isTodayEdit}) async {
     final date = ApiClient.parseDate(item['date']) ?? DateTime.now();
     final summary = (item['summary'] ?? '').toString();
+
+    final now = DateTime.now().toLocal();
+    final loc = date.toLocal();
+    final isToday = isTodayEdit ?? (loc.year == now.year && loc.month == now.month && loc.day == now.day);
 
     final result = await showModalBottomSheet<_JournalFormResult>(
       context: context,
@@ -337,6 +575,7 @@ class _BabyJournalPageState extends State<BabyJournalPage> {
         initialDate: date,
         initialSummary: summary,
         readOnly: _isObserver,
+        isTodayEdit: isToday,
       ),
     );
 
@@ -498,6 +737,24 @@ class _BabyJournalPageState extends State<BabyJournalPage> {
             ),
             if (hasFilter) ...[
               const SizedBox(height: 16),
+              if (_selectedCalendarDate != null && !_isObserver) ...[
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () => _openAddJournalSheet(initialDate: _selectedCalendarDate),
+                  icon: const Icon(Icons.edit_calendar_rounded, size: 18),
+                  label: Text(
+                    'Catat Jurnal Tanggal Ini (${DateFormat('d MMM', 'id_ID').format(_selectedCalendarDate!)})',
+                    style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
               TextButton.icon(
                 onPressed: () {
                   setState(() {
@@ -1019,7 +1276,7 @@ class _BabyJournalPageState extends State<BabyJournalPage> {
               backgroundColor: const Color(0xFF10B981),
               foregroundColor: Colors.white,
               elevation: 3,
-              onPressed: _openAddJournalSheet,
+              onPressed: _handleJournalFabTap,
               child: const Icon(Icons.add_rounded, size: 28),
             )
           : null,
@@ -1409,22 +1666,28 @@ class _FilterBar extends StatelessWidget {
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            const Icon(Icons.filter_list_rounded, size: 18, color: Color(0xFF64748B)),
-            const SizedBox(width: 8),
-            // Month Dropdown
-            Container(
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 28,
+            height: 38,
+            child: Center(
+              child: Icon(Icons.filter_list_rounded, size: 20, color: Color(0xFF64748B)),
+            ),
+          ),
+          const SizedBox(width: 4),
+          // Month Dropdown
+          Expanded(
+            flex: 1,
+            child: Container(
               height: 38,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
               decoration: BoxDecoration(
                 color: filterMonth != null ? const Color(0xFFD1FAE5) : const Color(0xFFF1F5F9),
                 borderRadius: BorderRadius.circular(8),
@@ -1436,28 +1699,35 @@ class _FilterBar extends StatelessWidget {
                 child: DropdownButton<int?>(
                   value: filterMonth,
                   isDense: true,
+                  isExpanded: true,
                   icon: const Icon(Icons.arrow_drop_down_rounded, size: 20, color: Color(0xFF475569)),
                   style: TextStyle(
                     fontFamily: 'Inter',
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: FontWeight.w600,
                     color: filterMonth != null ? const Color(0xFF065F46) : const Color(0xFF334155),
                   ),
                   items: months.map((m) {
                     return DropdownMenuItem<int?>(
                       value: m,
-                      child: Text(m == null ? 'Semua Bulan' : monthNames[m]),
+                      child: Text(
+                        m == null ? 'Semua Bulan' : monthNames[m],
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     );
                   }).toList(),
                   onChanged: onMonthChanged,
                 ),
               ),
             ),
-            const SizedBox(width: 8),
-            // Year Dropdown
-            Container(
+          ),
+          const SizedBox(width: 8),
+          // Year Dropdown
+          Expanded(
+            flex: 1,
+            child: Container(
               height: 38,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
               decoration: BoxDecoration(
                 color: filterYear != null ? const Color(0xFFD1FAE5) : const Color(0xFFF1F5F9),
                 borderRadius: BorderRadius.circular(8),
@@ -1469,47 +1739,63 @@ class _FilterBar extends StatelessWidget {
                 child: DropdownButton<int?>(
                   value: filterYear,
                   isDense: true,
+                  isExpanded: true,
                   icon: const Icon(Icons.arrow_drop_down_rounded, size: 20, color: Color(0xFF475569)),
                   style: TextStyle(
                     fontFamily: 'Inter',
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: FontWeight.w600,
                     color: filterYear != null ? const Color(0xFF065F46) : const Color(0xFF334155),
                   ),
                   items: years.map((y) {
                     return DropdownMenuItem<int?>(
                       value: y,
-                      child: Text(y == null ? 'Semua Tahun' : '$y'),
+                      child: Text(
+                        y == null ? 'Semua Tahun' : '$y',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     );
                   }).toList(),
                   onChanged: onYearChanged,
                 ),
               ),
             ),
-            if (isFiltered) ...[
-              const SizedBox(width: 8),
-              SizedBox(
+          ),
+          if (isFiltered) ...[
+            const SizedBox(width: 8),
+            Tooltip(
+              message: 'Reset Filter',
+              child: SizedBox(
+                width: 38,
                 height: 38,
-                child: TextButton.icon(
-                  onPressed: onReset,
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    foregroundColor: const Color(0xFFEF4444),
-                  ),
-                  icon: const Icon(Icons.close_rounded, size: 16),
-                  label: const Text(
-                    'Reset',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                child: Material(
+                  color: const Color(0xFFFEE2E2),
+                  borderRadius: BorderRadius.circular(8),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: onReset,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: const Color(0xFFFCA5A5),
+                          width: 1,
+                        ),
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.restart_alt_rounded,
+                          size: 18,
+                          color: Color(0xFFEF4444),
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ],
+            ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -1522,14 +1808,46 @@ class _JournalFormResult {
 }
 
 class _AddJournalSheet extends StatefulWidget {
-  const _AddJournalSheet();
+  final DateTime? initialDate;
+  final List<Map<String, dynamic>>? existingItems;
+
+  const _AddJournalSheet({
+    this.initialDate,
+    this.existingItems,
+  });
+
   @override
   State<_AddJournalSheet> createState() => _AddJournalSheetState();
 }
 
 class _AddJournalSheetState extends State<_AddJournalSheet> {
-  DateTime _date = DateTime.now();
+  late DateTime _date;
+  Map<String, dynamic>? _existingEntry;
   final _summary = TextEditingController();
+
+  Map<String, dynamic>? _getExistingFor(DateTime date) {
+    if (widget.existingItems == null) return null;
+    final target = DateTime(date.year, date.month, date.day);
+    for (final it in widget.existingItems!) {
+      final d = ApiClient.parseDate(it['date']);
+      if (d == null) continue;
+      final loc = d.toLocal();
+      if (loc.year == target.year && loc.month == target.month && loc.day == target.day) {
+        return it;
+      }
+    }
+    return null;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _date = widget.initialDate ?? DateTime.now();
+    _existingEntry = _getExistingFor(_date);
+    if (_existingEntry != null) {
+      _summary.text = (_existingEntry!['summary'] ?? '').toString();
+    }
+  }
 
   @override
   void dispose() {
@@ -1559,7 +1877,15 @@ class _AddJournalSheetState extends State<_AddJournalSheet> {
       },
     );
     if (picked != null) {
-      setState(() => _date = DateTime(picked.year, picked.month, picked.day));
+      final newDate = DateTime(picked.year, picked.month, picked.day);
+      final existing = _getExistingFor(newDate);
+      setState(() {
+        _date = newDate;
+        _existingEntry = existing;
+        if (_summary.text.trim().isEmpty && existing != null) {
+          _summary.text = (existing['summary'] ?? '').toString();
+        }
+      });
     }
   }
 
@@ -1590,9 +1916,9 @@ class _AddJournalSheetState extends State<_AddJournalSheet> {
                   ),
                 ),
               ),
-              const Text(
-                'Tambah Jurnal',
-                style: TextStyle(
+              Text(
+                _existingEntry != null ? 'Ubah Jurnal' : 'Tambah Jurnal',
+                style: const TextStyle(
                   fontFamily: 'Nunito',
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
@@ -1640,6 +1966,34 @@ class _AddJournalSheetState extends State<_AddJournalSheet> {
                   ),
                 ],
               ),
+              if (_existingEntry != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFF59E0B)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded, size: 16, color: Color(0xFFB45309)),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Jurnal pada tanggal ini sudah ada. Menyimpan akan memperbarui catatan tersebut.',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFFB45309),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               TextField(
                 controller: _summary,
@@ -1716,11 +2070,13 @@ class _EditJournalSheet extends StatefulWidget {
   final DateTime initialDate;
   final String? initialSummary;
   final bool readOnly;
+  final bool isTodayEdit;
 
   const _EditJournalSheet({
     required this.initialDate,
     this.initialSummary,
     this.readOnly = false,
+    this.isTodayEdit = false,
   });
 
   @override
@@ -1773,8 +2129,55 @@ class _EditJournalSheetState extends State<_EditJournalSheet> {
                   ),
                 ),
               ),
+              if (widget.isTodayEdit) ...[
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFECFDF5),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF10B981), width: 1.2),
+                  ),
+                  child: const Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.edit_calendar_rounded, size: 20, color: Color(0xFF047857)),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Mengubah Jurnal Hari Ini',
+                              style: TextStyle(
+                                fontFamily: 'Nunito',
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14,
+                                color: Color(0xFF064E3B),
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Catatan perkembangan hari ini sudah tersimpan. Mengedit akan memperbarui catatan ini.',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 12,
+                                color: Color(0xFF047857),
+                                height: 1.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               Text(
-                isReadOnly ? 'Detail Jurnal' : 'Ubah Jurnal',
+                isReadOnly
+                    ? 'Detail Jurnal'
+                    : (widget.isTodayEdit ? 'Ubah Jurnal Hari Ini' : 'Ubah Jurnal'),
                 style: const TextStyle(
                   fontFamily: 'Nunito',
                   fontSize: 18,
@@ -1828,40 +2231,50 @@ class _EditJournalSheetState extends State<_EditJournalSheet> {
                 ),
               ),
               const SizedBox(height: 20),
-              Row(
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (!isReadOnly)
-                    Expanded(
-                      child: SizedBox(
-                        height: 48,
-                        child: FilledButton(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFF10B981),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          onPressed: () {
-                            Navigator.pop(
-                              context,
-                              _JournalFormResult(_date, _summary.text),
-                            );
-                          },
-                          child: const Text('Simpan Perubahan', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15)),
+                  if (!isReadOnly) ...[
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF10B981),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 0,
+                        ),
+                        onPressed: () {
+                          Navigator.pop(
+                            context,
+                            _JournalFormResult(_date, _summary.text),
+                          );
+                        },
+                        child: const Text(
+                          'Simpan Perubahan',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
                         ),
                       ),
                     ),
-                  if (!isReadOnly) const SizedBox(width: 12),
-                  Expanded(
-                    child: SizedBox(
-                      height: 48,
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF475569),
-                          side: const BorderSide(color: Color(0xFFE2E8F0)),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        onPressed: () => Navigator.pop(context),
-                        child: Text(isReadOnly ? 'Tutup' : 'Batal', style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15)),
+                    const SizedBox(height: 10),
+                  ],
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF475569),
+                        side: const BorderSide(color: Color(0xFFE2E8F0)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                      child: Text(
+                        isReadOnly ? 'Tutup' : 'Batal',
+                        maxLines: 1,
+                        style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15),
                       ),
                     ),
                   ),

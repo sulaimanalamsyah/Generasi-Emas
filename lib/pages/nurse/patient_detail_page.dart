@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../services/api_client.dart';
+import '../../routes.dart';
+import '../../core/age_calculator.dart';
+import '../../core/weight_formatter.dart';
 
 class PatientDetailPage extends StatefulWidget {
   const PatientDetailPage({super.key});
@@ -33,6 +36,11 @@ class _PatientDetailPageState extends State<PatientDetailPage>
 
   List<Map<String, dynamic>>? _logbooks;
   List<Map<String, dynamic>>? _journals;
+
+  DateTime? _fincStartLocal;
+  final Map<int, Map<String, dynamic>> _entriesByDayIndex = {};
+  final List<Map<String, dynamic>> _orphanEntries = [];
+  String _selectedLogbookFilter = 'ALL'; // 'ALL', 'FILLED', 'UNFILLED'
 
   @override
   void initState() {
@@ -70,8 +78,8 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     _tabCtrl = TabController(length: 4, vsync: this, initialIndex: initialTabIndex)
       ..addListener(() {
         if (_tabCtrl!.indexIsChanging) return;
-        if (_tabCtrl!.index == 0) _loadLogbook();
-        if (_tabCtrl!.index == 1) _loadJournal();
+        if (_tabCtrl!.index == 0) _loadLogbook(force: true);
+        if (_tabCtrl!.index == 1) _loadJournal(force: true);
       });
 
     _argsInited = true;
@@ -123,22 +131,56 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     } finally {
       if (mounted) setState(() => _loadingDetail = false);
       if (mounted && _tabCtrl != null) {
-        if (_tabCtrl!.index == 0) _loadLogbook();
-        if (_tabCtrl!.index == 1) _loadJournal();
+        if (_tabCtrl!.index == 0) _loadLogbook(force: true);
+        if (_tabCtrl!.index == 1) _loadJournal(force: true);
       }
     }
   }
 
-  Future<void> _loadLogbook() async {
-    if (_loadingLogbook || _logbooks != null) return;
+  Future<void> _loadLogbook({bool force = false}) async {
+    if (_loadingLogbook || (!force && _logbooks != null)) return;
     if (patientId.isEmpty) return;
     setState(() {
       _loadingLogbook = true;
       _errorLogbook = null;
     });
     try {
-      final items = await _api.nurseGetPatientLogbook(patientId);
-      _logbooks = items.map((e) => (e as Map).cast<String, dynamic>()).toList();
+      final res = await _api.nurseGetPatientLogbook(patientId);
+      final rawItems = (res['items'] as List?) ?? [];
+      final items = rawItems.map((e) => (e as Map).cast<String, dynamic>()).toList();
+      _logbooks = items;
+
+      final fincRaw = res['fincStart'] ??
+          _detail?['profile']?['infant']?['fincStart'] ??
+          _detail?['fincStart'];
+      _fincStartLocal = ApiClient.parseDate(fincRaw);
+
+      _entriesByDayIndex.clear();
+      _orphanEntries.clear();
+
+      for (final m in items) {
+        final idx = m['dayIndex'];
+        if (idx is int && idx >= 1 && idx <= 14) {
+          _entriesByDayIndex[idx] = m;
+        } else if (_fincStartLocal != null) {
+          final dateLog = ApiClient.parseDate(m['date']);
+          if (dateLog != null) {
+            final diff = DateTime(dateLog.year, dateLog.month, dateLog.day)
+                    .difference(DateTime(_fincStartLocal!.year, _fincStartLocal!.month, _fincStartLocal!.day))
+                    .inDays +
+                1;
+            if (diff >= 1 && diff <= 14) {
+              _entriesByDayIndex[diff] = m;
+            } else {
+              _orphanEntries.add(m);
+            }
+          } else {
+            _orphanEntries.add(m);
+          }
+        } else {
+          _orphanEntries.add(m);
+        }
+      }
     } catch (e) {
       if (e is ApiError && e.status == 0) {
         _errorLogbook = 'Tidak ada koneksi internet.';
@@ -150,8 +192,8 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     }
   }
 
-  Future<void> _loadJournal() async {
-    if (_loadingJournal || _journals != null) return;
+  Future<void> _loadJournal({bool force = false}) async {
+    if (_loadingJournal || (!force && _journals != null)) return;
     if (patientId.isEmpty) return;
     setState(() {
       _loadingJournal = true;
@@ -283,6 +325,33 @@ class _PatientDetailPageState extends State<PatientDetailPage>
 
   /* ======================== HELPERS ======================== */
 
+  static const _indoMonths = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
+
+  String _fmtGender(dynamic g) {
+    if (g == null) return '-';
+    final s = g.toString().trim().toUpperCase();
+    if (s == 'LAKI_LAKI' || s == 'L' || s == 'LAKI-LAKI') return 'Laki-laki';
+    if (s == 'PEREMPUAN' || s == 'P') return 'Perempuan';
+    return s.isEmpty ? '-' : s;
+  }
+
+  String _fmtDateIndo(dynamic iso) {
+    if (iso == null) return '-';
+    try {
+      final dt = iso is DateTime ? iso : DateTime.tryParse(iso.toString())?.toLocal();
+      if (dt == null) return '-';
+      final day = dt.day;
+      final month = _indoMonths[dt.month - 1];
+      final year = dt.year;
+      return '$day $month $year';
+    } catch (_) {
+      return '-';
+    }
+  }
+
   String _fmtDate(dynamic iso) {
     if (iso == null) return '-';
     try {
@@ -317,6 +386,66 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     return def;
   }
 
+  static const _indoDays = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+
+  String _fmtDateFull(DateTime dt) {
+    final dName = _indoDays[(dt.weekday - 1).clamp(0, 6)];
+    final mName = _indoMonths[(dt.month - 1).clamp(0, 11)];
+    return '$dName, ${dt.day} $mName ${dt.year}';
+  }
+
+  String _fmtDateShort(DateTime dt) {
+    final mName = _indoMonths[(dt.month - 1).clamp(0, 11)];
+    final shortMonth = mName.length > 3 ? mName.substring(0, 3) : mName;
+    return '${dt.day} $shortMonth';
+  }
+
+  String? _parseAttendance(dynamic rawNote) {
+    if (rawNote == null) return null;
+    final m = RegExp(r'^\[ATTENDANCE:(YES|NO)\]', caseSensitive: false).firstMatch(rawNote.toString());
+    if (m != null) {
+      return m.group(1)?.toUpperCase() == 'YES' ? 'Hadir' : 'Tidak Hadir';
+    }
+    return null;
+  }
+
+  String _cleanNote(dynamic rawNote) {
+    if (rawNote == null) return '';
+    return rawNote.toString().replaceAll(RegExp(r'^\[ATTENDANCE:(YES|NO)\]\s*', caseSensitive: false), '').trim();
+  }
+
+  Widget _buildMetricTile(IconData icon, String value, String label, Color color) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 4),
+            Text(
+              value,
+              style: const TextStyle(
+                fontFamily: 'Nunito',
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 11,
+            color: Color(0xFF64748B),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildPatientHeaderCard() {
     final rootName = _safeStr(_detail?['name'], 'Ibu');
     final phone = _safeStr(_detail?['phone'], '');
@@ -329,6 +458,35 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     }
     if (babyName.isEmpty || babyName == '-') {
       babyName = _safeStr(infant['name'], 'Bayi');
+    }
+
+    final rawGender = (prof['babyGender'] ??
+            prof['gender'] ??
+            infant['babyGender'] ??
+            infant['gender'] ??
+            _detail?['babyGender'] ??
+            _detail?['gender'] ??
+            '')
+        .toString()
+        .trim()
+        .toUpperCase();
+    final isFemale = rawGender == 'PEREMPUAN' || rawGender == 'P';
+
+    final avatarBg = isFemale ? const Color(0xFFFCE7F3) : const Color(0xFFE0F2FE);
+    final avatarFg = isFemale ? const Color(0xFFDB2777) : const Color(0xFF0284C7);
+    final pillBg = isFemale ? const Color(0xFFFCE7F3) : const Color(0xFFE0F2FE);
+    final pillFg = isFemale ? const Color(0xFFBE185D) : const Color(0xFF0369A1);
+
+    String babyAgeStr = '';
+    if (infant['birthDate'] != null) {
+      try {
+        final bDate = infant['birthDate'] is DateTime
+            ? infant['birthDate'] as DateTime
+            : DateTime.tryParse(infant['birthDate'].toString())?.toLocal();
+        if (bDate != null) {
+          babyAgeStr = InfantAge.calculate(bDate).formatted;
+        }
+      } catch (_) {}
     }
 
     final mdx = _safeStr(infant['medicalDiagnosis'], '');
@@ -359,17 +517,17 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFD1FAE5),
+                  color: avatarBg,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Center(
                   child: Text(
                     babyName.isNotEmpty ? babyName[0].toUpperCase() : 'B',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Nunito',
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFF10B981),
+                      color: avatarFg,
                     ),
                   ),
                 ),
@@ -393,28 +551,58 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE0F2FE),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.child_care_rounded, size: 13, color: Color(0xFF072846)),
-                          const SizedBox(width: 4),
-                          Text(
-                            babyName,
-                            style: const TextStyle(
-                              fontFamily: 'Inter',
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF072846),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: pillBg,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.child_care_rounded, size: 13, color: pillFg),
+                              const SizedBox(width: 4),
+                              Text(
+                                babyName,
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: pillFg,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (babyAgeStr.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFD1FAE5),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.access_time_rounded, size: 12, color: Color(0xFF065F46)),
+                                const SizedBox(width: 4),
+                                Text(
+                                  babyAgeStr,
+                                  style: const TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF065F46),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
+                      ],
                     ),
                   ],
                 ),
@@ -471,6 +659,27 @@ class _PatientDetailPageState extends State<PatientDetailPage>
               ],
             ),
           ],
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            height: 38,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                final targetId = infant['id']?.toString() ?? patientId;
+                Navigator.pushNamed(context, Routes.infantAnalytics, arguments: {'infantId': targetId});
+              },
+              icon: const Icon(Icons.insights_rounded, size: 16, color: Color(0xFF10B981)),
+              label: const Text(
+                'Buka Dasbor Analitik & Grafik WHO',
+                style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Color(0xFF10B981)),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFFA7F3D0)),
+                backgroundColor: const Color(0xFFF0FDF4),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -506,6 +715,20 @@ class _PatientDetailPageState extends State<PatientDetailPage>
           ),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
+            tooltip: 'Perbarui Data',
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            onPressed: (_loadingDetail || _loadingLogbook || _loadingJournal)
+                ? null
+                : () async {
+                    await Future.wait([
+                      _loadDetail(),
+                      _loadLogbook(force: true),
+                      _loadJournal(force: true),
+                    ]);
+                  },
+          ),
           if (!_loadingDetail && _errorDetail == null)
             IconButton(
               icon: const Icon(Icons.person_remove_rounded, color: Color(0xFFEF4444)),
@@ -539,8 +762,8 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                 unselectedLabelStyle: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w500, fontSize: 13),
                 onTap: (i) {
                   if (_errorDetail != null || patientId.isEmpty) return;
-                  if (i == 0) _loadLogbook();
-                  if (i == 1) _loadJournal();
+                  if (i == 0) _loadLogbook(force: true);
+                  if (i == 1) _loadJournal(force: true);
                 },
                 tabs: const [
                   Tab(text: 'Logbook'),
@@ -589,100 +812,691 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     if (_errorLogbook != null) {
       return _ErrView(message: _errorLogbook!, onRetry: _loadLogbook);
     }
+
     final items = _logbooks ?? const <Map<String, dynamic>>[];
 
-    if (items.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              Icon(Icons.edit_note_rounded, size: 48, color: Color(0xFF94A3B8)),
-              SizedBox(height: 12),
-              Text(
-                'Belum Ada Isian Logbook',
-                style: TextStyle(fontFamily: 'Nunito', fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+    if (_fincStartLocal == null) {
+      return RefreshIndicator(
+        onRefresh: () => _loadLogbook(force: true),
+        color: const Color(0xFF10B981),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF3C7),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFFDE68A)),
               ),
-            ],
-          ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline_rounded, color: Color(0xFFB45309), size: 24),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Jadwal FINC Belum Dimulai',
+                          style: TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w800, fontSize: 14, color: Color(0xFF78350F)),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Ibu belum mengatur tanggal mulai program I-FINC pada profil bayi.',
+                          style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF92400E)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (items.isEmpty)
+              SizedBox(
+                height: MediaQuery.of(context).size.height * 0.35,
+                child: const Center(
+                  child: Text(
+                    'Belum Ada Isian Logbook',
+                    style: TextStyle(fontFamily: 'Nunito', fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                  ),
+                ),
+              )
+            else
+              ...items.map((it) {
+                final dt = ApiClient.parseDate(it['date']);
+                final dateStr = dt != null ? _fmtDateFull(dt) : _fmtDate(it['date']);
+                final dur = it['durationMinutes'];
+                final ok = _safeBool(it['coTargetMet']);
+                final rawNote = it['note']?.toString();
+                final att = _parseAttendance(rawNote);
+                final note = _cleanNote(rawNote);
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            dateStr,
+                            style: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 15, color: Color(0xFF0F172A)),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: ok ? const Color(0xFFD1FAE5) : const Color(0xFFFEE2E2),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              ok ? 'Target: ✓' : 'Target: ×',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: ok ? const Color(0xFF064E3B) : const Color(0xFF991B1B),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          if (dur != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                '$dur menit',
+                                style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                              ),
+                            ),
+                          if (att != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: att == 'Hadir' ? const Color(0xFFE0F2FE) : const Color(0xFFFEE2E2),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                att,
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: att == 'Hadir' ? const Color(0xFF0369A1) : const Color(0xFF991B1B),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      if (note.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          note,
+                          style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Color(0xFF0F172A)),
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              }),
+          ],
         ),
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: () async {
-        _logbooks = null;
-        await _loadLogbook();
-      },
-      color: const Color(0xFF10B981),
-      child: ListView.builder(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-        itemCount: items.length,
-        itemBuilder: (_, i) {
-          final it = items[i];
-          final date = _fmtDate(it['date']);
-          final dur = it['durationMinutes'];
-          final ok = _safeBool(it['coTargetMet']);
-          final note = _safeStr(it['note'], '');
+    // When _fincStartLocal != null: 14-Day I-FINC Matrix and Progress
+    final start = DateTime(_fincStartLocal!.year, _fincStartLocal!.month, _fincStartLocal!.day);
+    final programDays = List.generate(14, (i) => start.add(Duration(days: i)));
+    final completedCount = _entriesByDayIndex.keys.where((k) => k >= 1 && k <= 14).length;
+    final unfilledCount = (14 - completedCount).clamp(0, 14);
+    final totalDuration = _entriesByDayIndex.entries
+        .where((e) => e.key >= 1 && e.key <= 14)
+        .fold(0, (sum, e) => sum + ((e.value['durationMinutes'] as int?) ?? 0));
+    final targetMetCount = _entriesByDayIndex.entries
+        .where((e) => e.key >= 1 && e.key <= 14 && e.value['coTargetMet'] == true)
+        .length;
+    final percentage = (completedCount / 14 * 100).round();
+    final dateRangeStr = '${_fmtDateShort(programDays.first)} – ${_fmtDateShort(programDays.last)} ${programDays.last.year}';
 
-          return Container(
-            margin: const EdgeInsets.only(bottom: 12),
+    // Filter day indices (1..14)
+    final filteredDayIndices = <int>[];
+    for (int i = 1; i <= 14; i++) {
+      final isFilled = _entriesByDayIndex.containsKey(i);
+      if (_selectedLogbookFilter == 'FILLED' && !isFilled) continue;
+      if (_selectedLogbookFilter == 'UNFILLED' && isFilled) continue;
+      filteredDayIndices.add(i);
+    }
+
+    return RefreshIndicator(
+      onRefresh: () => _loadLogbook(force: true),
+      color: const Color(0xFF10B981),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        children: [
+          // 1. Progres Program I-FINC Card
+          Container(
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: const Color(0xFFE2E8F0)),
               boxShadow: const [
-                BoxShadow(color: Color(0x0F0F172A), blurRadius: 8, offset: Offset(0, 2)),
+                BoxShadow(color: Color(0x080F172A), blurRadius: 8, offset: Offset(0, 2)),
               ],
             ),
-            child: Padding(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD1FAE5),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.auto_graph_rounded, color: Color(0xFF10B981), size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Progres Program I-FINC',
+                            style: TextStyle(fontFamily: 'Nunito', fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            dateRangeStr,
+                            style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF64748B)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD1FAE5),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '$percentage%',
+                        style: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w800, fontSize: 13, color: Color(0xFF065F46)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: completedCount / 14,
+                    backgroundColor: const Color(0xFFE2E8F0),
+                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
+                    minHeight: 6,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(child: _buildMetricTile(Icons.calendar_today_rounded, '$completedCount / 14', 'Hari Terisi', const Color(0xFF10B981))),
+                    Container(width: 1, height: 28, color: const Color(0xFFE2E8F0)),
+                    Expanded(child: _buildMetricTile(Icons.schedule_rounded, '$totalDuration mnt', 'Total Durasi', const Color(0xFF0EA5E9))),
+                    Container(width: 1, height: 28, color: const Color(0xFFE2E8F0)),
+                    Expanded(child: _buildMetricTile(Icons.check_circle_outline_rounded, '$targetMetCount Hari', 'Target CO', const Color(0xFFF59E0B))),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // 2. Matriks 14 Hari Perawatan Card
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Matriks 14 Hari Perawatan',
+                  style: TextStyle(fontFamily: 'Nunito', fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                ),
+                const SizedBox(height: 10),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 7,
+                    crossAxisSpacing: 6,
+                    mainAxisSpacing: 6,
+                    childAspectRatio: 1.15,
+                  ),
+                  itemCount: 14,
+                  itemBuilder: (_, idx) {
+                    final dIdx = idx + 1;
+                    final isFilled = _entriesByDayIndex.containsKey(dIdx);
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: isFilled ? const Color(0xFF10B981) : const Color(0xFFFEE2E2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'H$dIdx',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: isFilled ? Colors.white : const Color(0xFF991B1B),
+                            ),
+                          ),
+                          Icon(
+                            isFilled ? Icons.check_rounded : Icons.close_rounded,
+                            size: 11,
+                            color: isFilled ? Colors.white : const Color(0xFF991B1B),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // 3. Status Filter Bar
+          Row(
+            children: [
+              _buildFilterChip('Semua (14)', 'ALL'),
+              const SizedBox(width: 8),
+              _buildFilterChip('Sudah Diisi ($completedCount)', 'FILLED'),
+              const SizedBox(width: 8),
+              _buildFilterChip('Belum Diisi ($unfilledCount)', 'UNFILLED'),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // 4. Timeline Cards
+          if (filteredDayIndices.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: const Center(
+                child: Text(
+                  'Tidak ada hari yang sesuai filter.',
+                  style: TextStyle(fontFamily: 'Nunito', fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF64748B)),
+                ),
+              ),
+            )
+          else
+            ...filteredDayIndices.map((dayIndex) {
+              final dayDate = programDays[dayIndex - 1];
+              final dateStr = _fmtDateFull(dayDate);
+              final entry = _entriesByDayIndex[dayIndex];
+              final isFilled = entry != null;
+
+              final dur = entry?['durationMinutes'];
+              final ok = _safeBool(entry?['coTargetMet']);
+              final rawNote = entry?['note']?.toString();
+              final att = _parseAttendance(rawNote);
+              final note = _cleanNote(rawNote);
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: isFilled ? const Color(0xFFE2E8F0) : const Color(0xFFFECDD3),
+                    width: isFilled ? 1 : 1.2,
+                  ),
+                  boxShadow: const [
+                    BoxShadow(color: Color(0x060F172A), blurRadius: 6, offset: Offset(0, 2)),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border(
+                        left: BorderSide(
+                          color: isFilled ? const Color(0xFF10B981) : const Color(0xFFF43F5E),
+                          width: 4,
+                        ),
+                      ),
+                    ),
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Hari ke-$dayIndex',
+                              style: const TextStyle(
+                                fontFamily: 'Nunito',
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                                color: Color(0xFF0F172A),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: isFilled ? const Color(0xFFD1FAE5) : const Color(0xFFFEE2E2),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                isFilled ? 'Sudah diisi' : 'Belum diisi',
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: isFilled ? const Color(0xFF064E3B) : const Color(0xFF991B1B),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          dateStr,
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 13,
+                            color: Color(0xFF64748B),
+                          ),
+                        ),
+                        if (isFilled) ...[
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              if (dur != null)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    '$dur menit',
+                                    style: const TextStyle(
+                                      fontFamily: 'Inter',
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF334155),
+                                    ),
+                                  ),
+                                ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: ok ? const Color(0xFFD1FAE5) : const Color(0xFFFEE2E2),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  ok ? 'Target: ✓' : 'Target: ×',
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: ok ? const Color(0xFF064E3B) : const Color(0xFF991B1B),
+                                  ),
+                                ),
+                              ),
+                              if (att != null)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: att == 'Hadir' ? const Color(0xFFE0F2FE) : const Color(0xFFFEE2E2),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    att,
+                                    style: TextStyle(
+                                      fontFamily: 'Inter',
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: att == 'Hadir' ? const Color(0xFF0369A1) : const Color(0xFF991B1B),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          if (note.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFFF1F5F9)),
+                              ),
+                              child: Text(
+                                note,
+                                style: const TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 13,
+                                  color: Color(0xFF0F172A),
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ] else ...[
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Pasien belum mengisi logbook untuk hari ini.',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic,
+                              color: Color(0xFF94A3B8),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+
+          // 5. Orphan Entries (Out of 14-day Window)
+          if (_orphanEntries.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
               padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
+                      const Icon(Icons.history_toggle_off_rounded, size: 18, color: Color(0xFF64748B)),
+                      const SizedBox(width: 8),
                       Text(
-                        date,
-                        style: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 16, color: Color(0xFF0F172A)),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: ok ? const Color(0xFFD1FAE5) : const Color(0xFFFEF3C7),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          ok ? 'Target Tercapai' : 'Target Belum',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: ok ? const Color(0xFF064E3B) : const Color(0xFF78350F),
-                          ),
+                        'Catatan di Luar Jadwal I-FINC (${_orphanEntries.length})',
+                        style: const TextStyle(
+                          fontFamily: 'Nunito',
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                          color: Color(0xFF475569),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Durasi: ${dur ?? '-'} menit',
-                    style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Color(0xFF475569)),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Entri berikut dicatat sebelum/setelah rentang 14 hari program (misal sebelum tanggal mulai FINC diubah):',
+                    style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFF64748B)),
                   ),
-                  if (note.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      note,
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Color(0xFF0F172A)),
-                    ),
-                  ],
+                  const SizedBox(height: 12),
+                  ..._orphanEntries.map((it) {
+                    final dt = ApiClient.parseDate(it['date']);
+                    final dateStr = dt != null ? _fmtDateFull(dt) : _fmtDate(it['date']);
+                    final dur = it['durationMinutes'];
+                    final ok = _safeBool(it['coTargetMet']);
+                    final rawNote = it['note']?.toString();
+                    final att = _parseAttendance(rawNote);
+                    final note = _cleanNote(rawNote);
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                dateStr,
+                                style: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF0F172A)),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: ok ? const Color(0xFFD1FAE5) : const Color(0xFFFEE2E2),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  ok ? 'Target: ✓' : 'Target: ×',
+                                  style: TextStyle(
+                                    fontFamily: 'Inter',
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: ok ? const Color(0xFF064E3B) : const Color(0xFF991B1B),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: [
+                              if (dur != null)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    '$dur mnt',
+                                    style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                                  ),
+                                ),
+                              if (att != null)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: att == 'Hadir' ? const Color(0xFFE0F2FE) : const Color(0xFFFEE2E2),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    att,
+                                    style: TextStyle(
+                                      fontFamily: 'Inter',
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: att == 'Hadir' ? const Color(0xFF0369A1) : const Color(0xFF991B1B),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          if (note.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              note,
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF334155)),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
                 ],
               ),
             ),
-          );
-        },
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String label, String value) {
+    final isSelected = _selectedLogbookFilter == value;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _selectedLogbookFilter = value),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFF10B981) : Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: isSelected ? const Color(0xFF10B981) : const Color(0xFFE2E8F0)),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: isSelected ? Colors.white : const Color(0xFF64748B),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -701,36 +1515,77 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     final items = _journals ?? const <Map<String, dynamic>>[];
 
     if (items.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              Icon(Icons.menu_book_rounded, size: 48, color: Color(0xFF94A3B8)),
-              SizedBox(height: 12),
-              Text(
-                'Belum Ada Jurnal Bayi',
-                style: TextStyle(fontFamily: 'Nunito', fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+      return RefreshIndicator(
+        onRefresh: () => _loadJournal(force: true),
+        color: const Color(0xFF10B981),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(
+              height: MediaQuery.of(context).size.height * 0.45,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.menu_book_rounded, size: 48, color: Color(0xFF94A3B8)),
+                      SizedBox(height: 12),
+                      Text(
+                        'Belum Ada Jurnal Bayi',
+                        style: TextStyle(fontFamily: 'Nunito', fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                      ),
+                      SizedBox(height: 6),
+                      Text(
+                        'Tarik ke bawah untuk memuat ulang',
+                        style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }
 
     return RefreshIndicator(
-      onRefresh: () async {
-        _journals = null;
-        await _loadJournal();
-      },
+      onRefresh: () => _loadJournal(force: true),
       color: const Color(0xFF10B981),
       child: ListView.builder(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-        itemCount: items.length,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        itemCount: items.length + 1,
         itemBuilder: (_, i) {
-          final it = items[i];
-          final date = _fmtDate(it['date']);
+          if (i == 0) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE0F2FE),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      'Total: ${items.length} Catatan Jurnal',
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0369A1),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          final it = items[i - 1];
+          final dt = ApiClient.parseDate(it['date']);
+          final dateStr = dt != null ? _fmtDateFull(dt) : _fmtDate(it['date']);
           final sum = _safeStr(it['summary'], '');
 
           return Container(
@@ -740,7 +1595,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: const Color(0xFFE2E8F0)),
               boxShadow: const [
-                BoxShadow(color: Color(0x0F0F172A), blurRadius: 8, offset: Offset(0, 2)),
+                BoxShadow(color: Color(0x060F172A), blurRadius: 6, offset: Offset(0, 2)),
               ],
             ),
             child: Padding(
@@ -748,15 +1603,40 @@ class _PatientDetailPageState extends State<PatientDetailPage>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    date,
-                    style: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 16, color: Color(0xFF0F172A)),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.menu_book_rounded, size: 16, color: Color(0xFF0EA5E9)),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          dateStr,
+                          style: const TextStyle(
+                            fontFamily: 'Nunito',
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   if (sum.isNotEmpty) ...[
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 10),
                     Text(
                       sum,
-                      style: const TextStyle(fontFamily: 'Inter', fontSize: 13, color: Color(0xFF475569)),
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        color: Color(0xFF334155),
+                        height: 1.4,
+                      ),
                     ),
                   ],
                 ],
@@ -944,7 +1824,6 @@ class _PatientDetailPageState extends State<PatientDetailPage>
 
   Widget _buildProfileTab() {
     final rootName = _safeStr(_detail?['name']);
-    final email = _safeStr(_detail?['email']);
     final phone = _safeStr(_detail?['phone']);
 
     final prof = (_detail?['profile'] as Map?)?.cast<String, dynamic>() ?? {};
@@ -956,7 +1835,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     final parity = _safeInt(prof['parity']);
     final delivery = _safeStr(prof['delivery']);
     final gest = _safeInt(prof['gestationalWeeks']);
-    final gender = _safeStr(prof['babyGender']);
+    final gender = _fmtGender(prof['babyGender']);
     final weight = _safeInt(prof['birthWeight']);
     final addr = _safeStr(prof['address']);
 
@@ -966,6 +1845,14 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     final dc = _fmtDate(infant['dischargeDate']);
     final w0 = _safeInt(infant['weightAtIntervention']);
     final w1 = _safeInt(infant['weightAtDischarge']);
+
+    String babyName = _safeStr(_detail?['infantName'], '');
+    if (babyName.isEmpty || babyName == '-') {
+      babyName = _safeStr(prof['babyName'], '');
+    }
+    if (babyName.isEmpty || babyName == '-') {
+      babyName = _safeStr(infant['name'], '-');
+    }
 
     return RefreshIndicator(
       onRefresh: _loadDetail,
@@ -977,11 +1864,10 @@ class _PatientDetailPageState extends State<PatientDetailPage>
             title: 'Identitas Ibu',
             tiles: [
               _InfoTile('Nama Lengkap', rootName),
-              _InfoTile('Email', email),
               _InfoTile('No. WhatsApp', phone),
               _InfoTile('Usia', age == 0 ? '-' : '$age tahun'),
-              _InfoTile('Pendidikan', edu),
-              _InfoTile('Pekerjaan', job),
+              _InfoTile('Pendidikan', edu.isEmpty || edu == '-' ? '-' : (edu == 'PT' ? 'Perguruan Tinggi' : edu)),
+              _InfoTile('Pekerjaan', job.isEmpty || job == '-' ? '-' : (job == 'LAINNYA' ? 'Lainnya' : job)),
               _InfoTile('Alamat', addr),
             ],
           ),
@@ -998,8 +1884,10 @@ class _PatientDetailPageState extends State<PatientDetailPage>
           _ProfileSectionCard(
             title: 'Identitas Bayi',
             tiles: [
+              _InfoTile('Nama Bayi', babyName.isNotEmpty && babyName != '-' ? babyName : '-'),
+              _InfoTile('Tanggal Lahir Bayi', _fmtDateIndo(infant['birthDate'])),
               _InfoTile('Jenis Kelamin', gender),
-              _InfoTile('Berat Lahir', weight == 0 ? '-' : '$weight gram'),
+              _InfoTile('Berat Lahir', WeightFormatter.formatGrams(weight)),
               _InfoTile('Diagnosis Medis', mdx),
               _InfoTile('Tanggal Masuk', adm),
               _InfoTile('Mulai FINC', finc),
@@ -1009,8 +1897,8 @@ class _PatientDetailPageState extends State<PatientDetailPage>
           _ProfileSectionCard(
             title: 'Perkembangan Berat Badan',
             tiles: [
-              _InfoTile('BB Awal Intervensi', w0 == 0 ? '-' : '$w0 gram'),
-              _InfoTile('BB Saat Pulang', w1 == 0 ? '-' : '$w1 gram'),
+              _InfoTile('BB Awal Intervensi', WeightFormatter.formatGrams(w0)),
+              _InfoTile('BB Saat Pulang', WeightFormatter.formatGrams(w1)),
               _InfoTile('Tanggal Pulang', dc),
             ],
           ),
@@ -1126,6 +2014,8 @@ class _InfoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final v = value.trim();
+    final displayValue = (v.isEmpty || v == 'null' || v == 'Belum diisi') ? '-' : v;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
@@ -1141,7 +2031,7 @@ class _InfoTile extends StatelessWidget {
           ),
           Flexible(
             child: Text(
-              value,
+              displayValue,
               textAlign: TextAlign.end,
               style: const TextStyle(
                 fontFamily: 'Inter',

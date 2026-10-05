@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:url_launcher/url_launcher.dart'; // [TAMBAHAN] Untuk buka WA
@@ -50,11 +52,18 @@ class _PdfOrWebState extends State<_PdfOrWeb> {
   late final WebViewController _c;
   bool _loading = true;
   String? _errorMessage;
+  bool _isCustomWidgetShown = false;
 
   @override
   void initState() {
     super.initState();
     _initWebView();
+  }
+
+  @override
+  void dispose() {
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    super.dispose();
   }
 
   void _initWebView() {
@@ -112,6 +121,60 @@ class _PdfOrWebState extends State<_PdfOrWeb> {
         ),
       )
       ..loadRequest(Uri.parse(loadUrl));
+
+    _setupCustomWidgetCallbacks();
+  }
+
+  void _setupCustomWidgetCallbacks() {
+    if (_c.platform is AndroidWebViewController) {
+      final androidController = _c.platform as AndroidWebViewController;
+      androidController.setCustomWidgetCallbacks(
+        onShowCustomWidget: (Widget widget, OnHideCustomWidgetCallback callback) {
+          if (!mounted) return;
+          _isCustomWidgetShown = true;
+          SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (BuildContext routeContext) {
+                return PopScope(
+                  canPop: true,
+                  onPopInvokedWithResult: (bool didPop, dynamic result) {
+                    if (didPop) {
+                      _isCustomWidgetShown = false;
+                      callback();
+                      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+                    }
+                  },
+                  child: Scaffold(
+                    backgroundColor: Colors.black,
+                    body: SizedBox.expand(
+                      child: widget,
+                    ),
+                  ),
+                );
+              },
+              fullscreenDialog: true,
+            ),
+          ).then((_) {
+            if (_isCustomWidgetShown) {
+              _isCustomWidgetShown = false;
+              callback();
+            }
+            SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+          });
+        },
+        onHideCustomWidget: () {
+          SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+          if (_isCustomWidgetShown && mounted) {
+            _isCustomWidgetShown = false;
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            }
+          }
+        },
+      );
+    }
   }
 
   // Helper: Memperbaiki URL YouTube/Drive agar ramah embed (Opsional)

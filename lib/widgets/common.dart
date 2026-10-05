@@ -28,32 +28,6 @@ class AppLogo extends StatelessWidget {
   }
 }
 
-class PrimaryBtn extends StatelessWidget {
-  final String label; final VoidCallback? onPressed;
-  const PrimaryBtn({super.key, required this.label, required this.onPressed});
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    width: double.infinity,
-    child: FilledButton(
-      onPressed: onPressed,
-      child: Padding(padding: const EdgeInsets.symmetric(vertical: 14), child: Text(label)),
-    ),
-  );
-}
-
-class SecondaryBtn extends StatelessWidget {
-  final String label; final VoidCallback? onPressed;
-  const SecondaryBtn({super.key, required this.label, required this.onPressed});
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    width: double.infinity,
-    child: OutlinedButton(
-      onPressed: onPressed,
-      child: Padding(padding: const EdgeInsets.symmetric(vertical: 14), child: Text(label)),
-    ),
-  );
-}
-
 PreferredSizeWidget commonAppBar(String title, {List<Widget>? actions}) => AppBar(
   title: Text(
     title,
@@ -120,7 +94,63 @@ PreferredSizeWidget evaluationAppBar({
   ],
 );
 
-Widget sectionTitle(String s) => Padding(
-  padding: const EdgeInsets.symmetric(vertical: 8),
-  child: Text(s, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-);
+/// Dialog informasi / error standar aplikasi Generasi Emas
+/// Mengikuti standar .agents/DESIGN.md: touch target >= 48dp, warna semantik, tipografi Nunito/Inter
+Future<void> showAppInfoDialog(
+  BuildContext context, {
+  required String title,
+  required String message,
+  bool isError = false,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Row(
+        children: [
+          Icon(
+            isError ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
+            color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(
+                fontFamily: 'Nunito',
+                fontWeight: FontWeight.w700,
+                color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
+              ),
+            ),
+          ),
+        ],
+      ),
+      content: Text(
+        message,
+        style: const TextStyle(
+          fontFamily: 'Inter',
+          color: Color(0xFF0F172A),
+          fontSize: 14,
+          height: 1.4,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          style: TextButton.styleFrom(
+            minimumSize: const Size(64, 48),
+          ),
+          child: const Text(
+            'OK',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF10B981),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+

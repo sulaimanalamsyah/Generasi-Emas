@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../core/link_utils.dart';
 import '../services/api_client.dart';
 import '../widgets/in_app_viewer_page.dart';
 
@@ -65,12 +66,8 @@ class _ContactResearchersPageState extends State<ContactResearchersPage> {
   }
 
   String _normalizeForWa(String? raw) {
-    if (raw == null) return '';
-    var p = raw.replaceAll(RegExp(r'\D'), '');
-    if (p.isEmpty) return '';
-    if (p.startsWith('0')) p = '62${p.substring(1)}';
-    if (p.startsWith('8')) p = '62$p';
-    return p;
+    if (raw == null || raw.isEmpty) return '';
+    return normalizeIdPhone(raw);
   }
 
   String _normalizeForTel(String? raw) {

@@ -19,7 +19,7 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.example.generasi_emas"
+    namespace = "com.enicare.app"
     compileSdk = 36
     ndkVersion = "28.2.13676358"
 
@@ -34,8 +34,7 @@ android {
     }
 
     defaultConfig {
-        // Option A: Kept for development and immediate testing with existing FCM
-        applicationId = "com.example.generasi_emas"
+        applicationId = "com.enicare.app"
         minSdkVersion = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -55,6 +54,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Use release keystore if key.properties exists to maintain identical signatures across debug and release builds
+            signingConfig = keystorePropertiesFile.exists()
+                ? signingConfigs.release
+                : signingConfigs.debug
+        }
         release {
             // Use release keystore if key.properties exists; otherwise fall back to debug
             signingConfig = keystorePropertiesFile.exists()

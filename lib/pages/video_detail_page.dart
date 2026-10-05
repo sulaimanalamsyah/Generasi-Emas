@@ -1,8 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../core/youtube_helper.dart';
+import '../routes.dart';
+import 'module_detail_page.dart';
 
 /// Arguments model for navigating to VideoDetailPage
 class VideoDetailArguments {
@@ -37,6 +41,8 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
   late final WebViewController _controller;
   bool _isLoading = true;
   String? _errorMessage;
+  Timer? _loadingTimeout;
+  bool _isCustomWidgetShown = false;
 
   late String _currentTitle;
   late String _currentUrl;
@@ -53,23 +59,19 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
     _currentModuleTitle = widget.args.moduleTitle;
     _relatedVideos = widget.args.relatedVideos;
 
-    _initPlayer();
+    _initController();
+    _loadVideo();
   }
 
   @override
   void dispose() {
+    _loadingTimeout?.cancel();
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _controller.loadRequest(Uri.parse('about:blank'));
     super.dispose();
   }
 
-  void _initPlayer() {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    final ytId = YouTubeHelper.extractVideoId(_currentUrl);
-
+  void _initController() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.black)
@@ -78,23 +80,16 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
       )
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageStarted: (_) {
-            if (mounted) {
-              setState(() {
-                _isLoading = true;
-                _errorMessage = null;
-              });
-            }
-          },
           onPageFinished: (_) {
+            _loadingTimeout?.cancel();
             if (mounted) {
               setState(() => _isLoading = false);
             }
           },
           onWebResourceError: (error) {
             if (mounted) {
-              // Ignore non-critical scheme errors (e.g. intent schemes)
               if (error.description.contains("ERR_UNKNOWN_URL_SCHEME")) return;
+              _loadingTimeout?.cancel();
               setState(() {
                 _isLoading = false;
                 _errorMessage = "Gagal memutar video secara langsung: ${error.description}";
@@ -122,6 +117,77 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
         ),
       );
 
+    _setupCustomWidgetCallbacks();
+  }
+
+  void _setupCustomWidgetCallbacks() {
+    if (_controller.platform is AndroidWebViewController) {
+      final androidController = _controller.platform as AndroidWebViewController;
+      androidController.setCustomWidgetCallbacks(
+        onShowCustomWidget: (Widget widget, OnHideCustomWidgetCallback callback) {
+          if (!mounted) return;
+          _isCustomWidgetShown = true;
+          // Hide status bar & navigation bar to ensure buttons are never covered
+          SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (BuildContext routeContext) {
+                return PopScope(
+                  canPop: true,
+                  onPopInvokedWithResult: (bool didPop, dynamic result) {
+                    if (didPop) {
+                      _isCustomWidgetShown = false;
+                      callback();
+                      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+                    }
+                  },
+                  child: Scaffold(
+                    backgroundColor: Colors.black,
+                    body: SizedBox.expand(
+                      child: widget,
+                    ),
+                  ),
+                );
+              },
+              fullscreenDialog: true,
+            ),
+          ).then((_) {
+            if (_isCustomWidgetShown) {
+              _isCustomWidgetShown = false;
+              callback();
+            }
+            SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+          });
+        },
+        onHideCustomWidget: () {
+          SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+          if (_isCustomWidgetShown && mounted) {
+            _isCustomWidgetShown = false;
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            }
+          }
+        },
+      );
+    }
+  }
+
+  void _loadVideo() {
+    _loadingTimeout?.cancel();
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    // Safety timeout to prevent infinite loading spinner in case of silent iframe delay
+    _loadingTimeout = Timer(const Duration(seconds: 8), () {
+      if (mounted && _isLoading) {
+        setState(() => _isLoading = false);
+      }
+    });
+
+    final ytId = YouTubeHelper.extractVideoId(_currentUrl);
     if (ytId != null && ytId.isNotEmpty) {
       final html = YouTubeHelper.buildPlayerHtml(ytId);
       _controller.loadHtmlString(html, baseUrl: 'https://www.youtube-nocookie.com');
@@ -130,6 +196,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
       if (playableUrl.isNotEmpty) {
         _controller.loadRequest(Uri.parse(playableUrl));
       } else {
+        _loadingTimeout?.cancel();
         setState(() {
           _isLoading = false;
           _errorMessage = "URL video tidak valid atau kosong.";
@@ -144,7 +211,51 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
       _currentUrl = video['url'] ?? '';
       _currentDescription = video['description'] as String?;
     });
-    _initPlayer();
+    _loadVideo();
+  }
+
+  String _detectFormat(Map<String, dynamic> item) {
+    final kind = (item['kind'] as String?)?.toUpperCase();
+    if (kind != null && kind.isNotEmpty) {
+      if (kind.contains('PDF')) return 'PDF';
+      if (kind.contains('LINK')) return 'LINK';
+      if (kind.contains('VIDEO')) return 'VIDEO';
+    }
+    final url = (item['url'] as String? ?? '').toLowerCase();
+    if (YouTubeHelper.extractVideoId(url) != null ||
+        url.contains('youtu.be') ||
+        url.contains('youtube.com')) {
+      return 'VIDEO';
+    }
+    if (url.endsWith('.pdf') ||
+        url.contains('/pdf') ||
+        url.contains('drive.google.com')) {
+      return 'PDF';
+    }
+    return 'VIDEO';
+  }
+
+  void _handleSiblingTap(Map<String, dynamic> item) {
+    final format = _detectFormat(item);
+    if (format == 'VIDEO') {
+      _switchVideo(item);
+    } else {
+      _loadingTimeout?.cancel();
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      _controller.loadRequest(Uri.parse('about:blank'));
+      Navigator.pushReplacementNamed(
+        context,
+        Routes.moduleDetail,
+        arguments: ModuleDetailArguments(
+          title: (item['title'] ?? 'Materi Edukasi').toString(),
+          url: (item['url'] ?? '').toString(),
+          description: item['description'] as String?,
+          moduleTitle: _currentModuleTitle,
+          kind: format,
+          relatedItems: _relatedVideos,
+        ),
+      );
+    }
   }
 
   Future<void> _launchExternalYouTube() async {
@@ -188,6 +299,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
           tooltip: 'Kembali',
+          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
@@ -201,14 +313,10 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.share_outlined, color: Color(0xFF0F172A)),
-            tooltip: 'Salin Tautan',
-            onPressed: _copyLink,
-          ),
-          IconButton(
-            icon: const Icon(Icons.open_in_new_rounded, color: Color(0xFF0F172A)),
-            tooltip: 'Buka di YouTube',
-            onPressed: _launchExternalYouTube,
+            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
+            tooltip: 'Muat Ulang Video',
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            onPressed: _isLoading ? null : _loadVideo,
           ),
         ],
       ),
@@ -407,23 +515,113 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                   ),
                 ),
 
-                // 4. Related Videos Section (if any)
-                if (filteredRelated.isNotEmpty) ...[
-                  const SizedBox(height: 24),
-                  const Text(
-                    'Video Lainnya di Modul Ini',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                      fontFamily: 'Nunito',
+                // 4. Sibling Materials in this Module
+                const SizedBox(height: 24),
+                const Row(
+                  children: [
+                    Icon(Icons.video_library_rounded, size: 18, color: Color(0xFF0F172A)),
+                    SizedBox(width: 8),
+                    Text(
+                      'Item Lainnya dalam Modul Ini',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                        fontFamily: 'Nunito',
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  ...filteredRelated.map((video) {
-                    final vTitle = video['title'] ?? 'Video Edukasi';
-                    final vUrl = video['url'] ?? '';
-                    final thumbUrl = YouTubeHelper.getThumbnailUrl(vUrl);
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (filteredRelated.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info_outline_rounded, size: 20, color: Color(0xFF94A3B8)),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Tidak ada materi lain dalam modul ini.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF64748B),
+                              fontFamily: 'Inter',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  ...filteredRelated.map((item) {
+                    final itemTitle = (item['title'] ?? 'Materi Edukasi').toString();
+                    final itemUrl = (item['url'] ?? '').toString();
+                    final itemDesc = item['description'] as String?;
+                    final format = _detectFormat(item);
+
+                    Widget leadingWidget;
+                    String badgeLabel;
+                    Color badgeBg;
+                    Color badgeText;
+
+                    if (format == 'VIDEO') {
+                      final thumbUrl = YouTubeHelper.getThumbnailUrl(itemUrl);
+                      badgeLabel = 'Video';
+                      badgeBg = const Color(0xFFFEE2E2);
+                      badgeText = const Color(0xFFDC2626);
+                      leadingWidget = ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          width: 60,
+                          height: 44,
+                          color: const Color(0xFFE2E8F0),
+                          child: thumbUrl.isNotEmpty
+                              ? Image.network(
+                                  thumbUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => const Center(
+                                    child: Icon(Icons.play_circle_outline, color: Color(0xFF10B981)),
+                                  ),
+                                )
+                              : const Center(
+                                  child: Icon(Icons.play_circle_outline, color: Color(0xFF10B981)),
+                                ),
+                        ),
+                      );
+                    } else if (format == 'PDF') {
+                      badgeLabel = 'Modul PDF';
+                      badgeBg = const Color(0xFFFEF2F2);
+                      badgeText = const Color(0xFFEF4444);
+                      leadingWidget = Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF2F2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.picture_as_pdf_rounded, color: Color(0xFFEF4444), size: 22),
+                      );
+                    } else {
+                      badgeLabel = 'Artikel / Link';
+                      badgeBg = const Color(0xFFE0F2FE);
+                      badgeText = const Color(0xFF0284C7);
+                      leadingWidget = Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE0F2FE),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.article_rounded, color: Color(0xFF0284C7), size: 22),
+                      );
+                    }
 
                     return Container(
                       margin: const EdgeInsets.only(bottom: 10),
@@ -434,27 +632,9 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                       ),
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        leading: ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: Container(
-                            width: 72,
-                            height: 48,
-                            color: const Color(0xFFE2E8F0),
-                            child: thumbUrl.isNotEmpty
-                                ? Image.network(
-                                    thumbUrl,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => const Center(
-                                      child: Icon(Icons.play_circle_outline, color: Color(0xFF10B981)),
-                                    ),
-                                  )
-                                : const Center(
-                                    child: Icon(Icons.play_circle_outline, color: Color(0xFF10B981)),
-                                  ),
-                          ),
-                        ),
+                        leading: leadingWidget,
                         title: Text(
-                          vTitle,
+                          itemTitle,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -463,12 +643,49 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                             color: Color(0xFF0F172A),
                           ),
                         ),
+                        subtitle: Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: badgeBg,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  badgeLabel,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: badgeText,
+                                    fontFamily: 'Inter',
+                                  ),
+                                ),
+                              ),
+                              if (itemDesc != null && itemDesc.trim().isNotEmpty) ...[
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    itemDesc.trim(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFF64748B),
+                                      fontFamily: 'Inter',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
                         trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF94A3B8)),
-                        onTap: () => _switchVideo(video),
+                        onTap: () => _handleSiblingTap(item),
                       ),
                     );
                   }),
-                ],
               ],
             ),
           ),

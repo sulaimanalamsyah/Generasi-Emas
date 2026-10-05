@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../services/auth_service.dart';
 import '../services/api_client.dart';
+import '../services/fcm_service.dart';
 import '../core/storage.dart';
-import '../core/nav.dart';
 import '../routes.dart';
 import '../widgets/common.dart';
 
@@ -17,7 +16,7 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final _email = TextEditingController();
   final _pass = TextEditingController();
-  final _auth = AuthService();
+  final _api = ApiClient();
 
   bool _obscure = true;
   bool _loading = false;
@@ -68,66 +67,108 @@ class _LoginPageState extends State<LoginPage> {
     final email = _email.text.trim();
     final pass = _pass.text;
 
-    if (email.isEmpty || pass.isEmpty) {
+    if (email.isEmpty && pass.isEmpty) {
       _showSnackBar("Email dan password wajib diisi.", isError: true);
+      return;
+    }
+    if (email.isEmpty) {
+      _showSnackBar("Email wajib diisi.", isError: true);
+      return;
+    }
+    if (pass.isEmpty) {
+      _showSnackBar("Password wajib diisi.", isError: true);
+      return;
+    }
+
+    final emailRegex = RegExp(r'^[\w\.-]+@([\w-]+\.)+[\w-]{2,4}$');
+    if (!emailRegex.hasMatch(email)) {
+      _showSnackBar("Format email tidak valid. Contoh: nama@email.com", isError: true);
       return;
     }
 
     setState(() => _loading = true);
 
     try {
-      await _auth.logoutLocal();
+      await Prefs.clearAll();
 
-      final ok = await _auth.login(email: email, password: pass);
+      final user = await _api.login(email: email, password: pass);
+      final role = (user['role'] as String?) ?? 'mother';
+      await Prefs.setRole(role);
 
-      if (ok) {
+      final phone = user['phone'] as String?;
+      if (phone != null && phone.isNotEmpty) {
+        await Prefs.setPhone(phone);
+      }
+
+      String display = (user['name'] as String?) ??
+          (user['email'] as String?)?.split('@').first ?? 'Pengguna';
+
+      // Pre-fetch profil pasien HANYA jika akun adalah Ibu atau Ayah
+      // Akun Perawat/Admin tidak memiliki record di /api/patient/me/profile sehingga memicu HTTP 403 & force logout
+      if (role == 'mother' || role == 'father') {
         try {
-          final api = ApiClient();
-          final res = await api.getMyProfile();
-
+          final res = await _api.getMyProfile();
           if (res != null && res['profile'] != null) {
             final userObj = res['profile']['user'] ?? {};
-            final phone = userObj['phone'] as String?;
-
-            if (phone != null && phone.isNotEmpty) {
-              await Prefs.setPhone(phone);
+            final pPhone = userObj['phone'] as String?;
+            if (pPhone != null && pPhone.isNotEmpty) {
+              await Prefs.setPhone(pPhone);
             }
 
-            String? displayName;
-            final role = userObj['role'];
-
-            if (role == 'mother') {
-              displayName = res['profile']['motherName'] ?? res['profile']['name'];
-            }
-
-            if (displayName != null && displayName.isNotEmpty) {
-              await Prefs.setDisplayName(displayName);
+            final profileRole = userObj['role'];
+            if (profileRole == 'mother') {
+              final motherName = res['profile']['motherName'] ?? res['profile']['name'];
+              if (motherName != null && motherName.toString().isNotEmpty) {
+                display = motherName.toString();
+              }
             }
           }
         } catch (e) {
-          debugPrint("Gagal pre-fetch profil: $e");
+          debugPrint("Gagal pre-fetch profil pasien: $e");
         }
-
-        if (!mounted) return;
-        setState(() => _loading = false);
-
-        final role = await Prefs.getRole();
-        if (!mounted) return;
-        goHomeByRole(context, role);
-      } else {
-        if (!mounted) return;
-        setState(() => _loading = false);
-        _showSnackBar("Email atau password salah.", isError: true);
       }
+
+      await Prefs.setDisplayName(display);
+      FcmService().sendCurrentToken();
+
+      if (!mounted) return;
+      setState(() => _loading = false);
+
+      _goHomeByRole(role);
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
 
-      if (e is ApiError && e.status == 0) {
-        _showSnackBar("Tidak ada koneksi internet.", isError: true);
+      if (e is ApiError) {
+        if (e.status == 0) {
+          _showSnackBar("Tidak dapat terhubung ke server. Periksa koneksi internet Anda.", isError: true);
+        } else if (e.status == 401 ||
+            e.status == 404 ||
+            e.message.toLowerCase().contains('unauthorized') ||
+            e.message.toLowerCase().contains('kredensial')) {
+          _showSnackBar("Email atau kata sandi salah. Silakan periksa kembali.", isError: true);
+        } else if (e.status == 429) {
+          _showSnackBar("Terlalu banyak percobaan masuk. Mohon tunggu beberapa saat dan coba lagi.", isError: true);
+        } else if (e.status == 408) {
+          _showSnackBar("Waktu permintaan habis. Periksa koneksi internet Anda dan coba lagi.", isError: true);
+        } else {
+          _showSnackBar(e.message, isError: true);
+        }
       } else {
-        _showSnackBar("Terjadi kesalahan: $e", isError: true);
+        _showSnackBar("Terjadi kesalahan saat masuk. Silakan coba lagi.", isError: true);
       }
+    }
+  }
+
+  void _goHomeByRole(String? role) {
+    switch ((role ?? 'mother').toLowerCase()) {
+      case 'nurse':
+        Navigator.pushNamedAndRemoveUntil(context, Routes.nurseHome, (_) => false);
+        break;
+      case 'mother':
+      case 'father':
+      default:
+        Navigator.pushNamedAndRemoveUntil(context, Routes.homePatient, (_) => false);
     }
   }
 

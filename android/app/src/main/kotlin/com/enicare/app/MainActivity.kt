@@ -1,4 +1,4 @@
-package com.example.generasi_emas
+package com.enicare.app
 
 import io.flutter.embedding.android.FlutterActivity
 

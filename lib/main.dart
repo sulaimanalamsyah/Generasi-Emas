@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'firebase_options.dart';
 import 'services/fcm_service.dart';
@@ -18,13 +17,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('id_ID', null);
 
-  // Load environment variables safely
-  try {
-    await dotenv.load(fileName: ".env");
-    debugPrint("✅ Environment loaded: ${AppEnv.environment} (API: ${AppEnv.apiBaseUrl})");
-  } catch (e) {
-    debugPrint("ℹ️ .env file not loaded. Falling back to compile-time definitions / defaults ($e).");
-  }
+  debugPrint("✅ Environment active: ${AppEnv.environment} (API: ${AppEnv.apiBaseUrl})");
 
   // 1. Setup Error Boundary (Fallback UI)
   ErrorWidget.builder = (FlutterErrorDetails details) {

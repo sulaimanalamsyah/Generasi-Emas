@@ -1,11 +1,16 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../core/constants.dart';
 import '../core/pdf_helper.dart';
+import '../core/youtube_helper.dart';
+import '../routes.dart';
+import 'video_detail_page.dart';
 
 class ReferenceDetailArguments {
   final String title;
@@ -48,10 +53,12 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
   String? _currentDoi;
   late List<Map<String, dynamic>> _relatedReferences;
 
-  late WebViewController _controller;
+  late final WebViewController _controller;
   bool _isLoading = true;
   String? _errorMessage;
   bool _isFullscreen = false;
+  bool _isCustomWidgetShown = false;
+  Timer? _loadingTimeout;
 
   @override
   void initState() {
@@ -65,30 +72,19 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
     _currentDoi = widget.args.doi;
     _relatedReferences = List.from(widget.args.relatedReferences);
 
-    _initReader();
+    _initController();
+    _loadReference();
   }
 
   @override
   void dispose() {
+    _loadingTimeout?.cancel();
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _controller.loadRequest(Uri.parse('about:blank'));
     super.dispose();
   }
 
-  void _initReader() {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    final targetUrl = PdfHelper.getPlayablePdfUrl(_currentUrl);
-    if (targetUrl.isEmpty) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = "URL dokumen referensi tidak valid atau kosong.";
-      });
-      return;
-    }
-
+  void _initController() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.white)
@@ -97,15 +93,8 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
       )
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageStarted: (_) {
-            if (mounted) {
-              setState(() {
-                _isLoading = true;
-                _errorMessage = null;
-              });
-            }
-          },
           onPageFinished: (_) {
+            _loadingTimeout?.cancel();
             if (mounted) {
               setState(() => _isLoading = false);
             }
@@ -113,6 +102,7 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
           onWebResourceError: (error) {
             if (mounted) {
               if (error.description.contains("ERR_UNKNOWN_URL_SCHEME")) return;
+              _loadingTimeout?.cancel();
               setState(() {
                 _isLoading = false;
                 _errorMessage =
@@ -137,8 +127,100 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
             return NavigationDecision.prevent;
           },
         ),
-      )
-      ..loadRequest(Uri.parse(targetUrl));
+      );
+
+    _setupCustomWidgetCallbacks();
+  }
+
+  void _setupCustomWidgetCallbacks() {
+    if (_controller.platform is AndroidWebViewController) {
+      final androidController = _controller.platform as AndroidWebViewController;
+      androidController.setCustomWidgetCallbacks(
+        onShowCustomWidget: (Widget widget, OnHideCustomWidgetCallback callback) {
+          if (!mounted) return;
+          _isCustomWidgetShown = true;
+          // Hide status bar & navigation bar to ensure buttons are never covered
+          SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (BuildContext routeContext) {
+                return PopScope(
+                  canPop: true,
+                  onPopInvokedWithResult: (bool didPop, dynamic result) {
+                    if (didPop) {
+                      _isCustomWidgetShown = false;
+                      callback();
+                      SystemChrome.setEnabledSystemUIMode(
+                        _isFullscreen
+                            ? SystemUiMode.immersiveSticky
+                            : SystemUiMode.edgeToEdge,
+                      );
+                    }
+                  },
+                  child: Scaffold(
+                    backgroundColor: Colors.black,
+                    body: SizedBox.expand(
+                      child: widget,
+                    ),
+                  ),
+                );
+              },
+              fullscreenDialog: true,
+            ),
+          ).then((_) {
+            if (_isCustomWidgetShown) {
+              _isCustomWidgetShown = false;
+              callback();
+            }
+            SystemChrome.setEnabledSystemUIMode(
+              _isFullscreen
+                  ? SystemUiMode.immersiveSticky
+                  : SystemUiMode.edgeToEdge,
+            );
+          });
+        },
+        onHideCustomWidget: () {
+          SystemChrome.setEnabledSystemUIMode(
+            _isFullscreen
+                ? SystemUiMode.immersiveSticky
+                : SystemUiMode.edgeToEdge,
+          );
+          if (_isCustomWidgetShown && mounted) {
+            _isCustomWidgetShown = false;
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            }
+          }
+        },
+      );
+    }
+  }
+
+  void _loadReference() {
+    _loadingTimeout?.cancel();
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    final targetUrl = PdfHelper.getPlayablePdfUrl(_currentUrl);
+    if (targetUrl.isEmpty) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = "URL dokumen referensi tidak valid atau kosong.";
+      });
+      return;
+    }
+
+    // Safety timeout to prevent infinite spinner
+    _loadingTimeout = Timer(const Duration(seconds: 10), () {
+      if (mounted && _isLoading) {
+        setState(() => _isLoading = false);
+      }
+    });
+
+    _controller.loadRequest(Uri.parse(targetUrl));
   }
 
   void _switchReference(Map<String, dynamic> ref) {
@@ -151,7 +233,54 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
       _currentSummary = ref['summary'] as String?;
       _currentDoi = ref['doi'] as String?;
     });
-    _initReader();
+    _loadReference();
+  }
+
+  String _detectFormat(Map<String, dynamic> item) {
+    final kind = (item['kind'] as String?)?.toUpperCase();
+    if (kind != null && kind.isNotEmpty) {
+      if (kind.contains('VIDEO')) return 'VIDEO';
+      if (kind.contains('PDF')) return 'PDF';
+      if (kind.contains('LINK')) return 'LINK';
+    }
+    final url = (item['url'] as String? ?? '').toLowerCase();
+    if (YouTubeHelper.extractVideoId(url) != null ||
+        url.contains('youtu.be') ||
+        url.contains('youtube.com')) {
+      return 'VIDEO';
+    }
+    if (url.endsWith('.pdf') ||
+        url.contains('/pdf') ||
+        url.contains('drive.google.com')) {
+      return 'PDF';
+    }
+    return 'LINK';
+  }
+
+  void _handleSiblingTap(Map<String, dynamic> item) {
+    final format = _detectFormat(item);
+    if (format == 'VIDEO') {
+      _loadingTimeout?.cancel();
+      if (_isFullscreen) {
+        _toggleFullscreen();
+      } else {
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      }
+      _controller.loadRequest(Uri.parse('about:blank'));
+      Navigator.pushReplacementNamed(
+        context,
+        Routes.videoDetail,
+        arguments: VideoDetailArguments(
+          title: (item['title'] ?? 'Video Edukasi').toString(),
+          url: (item['url'] ?? '').toString(),
+          description: item['summary'] as String? ?? item['description'] as String?,
+          moduleTitle: _currentCategory,
+          relatedVideos: _relatedReferences,
+        ),
+      );
+    } else {
+      _switchReference(item);
+    }
   }
 
   Future<void> _openInExternalBrowser() async {
@@ -204,91 +333,97 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
   void _toggleFullscreen() {
     setState(() {
       _isFullscreen = !_isFullscreen;
+      if (_isFullscreen) {
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      } else {
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
-          tooltip: 'Kembali',
-          onPressed: () {
-            if (_isFullscreen) {
-              setState(() => _isFullscreen = false);
-            } else {
-              Navigator.pop(context);
-            }
-          },
-        ),
-        title: Text(
-          _isFullscreen ? _currentTitle : 'Detail Referensi Medis',
-          style: const TextStyle(
-            color: Color(0xFF0F172A),
-            fontWeight: FontWeight.w700,
-            fontSize: 17,
-            fontFamily: 'Nunito',
+    return PopScope(
+      canPop: !_isFullscreen,
+      onPopInvokedWithResult: (bool didPop, dynamic result) {
+        if (!didPop && _isFullscreen) {
+          _toggleFullscreen();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
+            tooltip: 'Kembali',
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            onPressed: () {
+              if (_isFullscreen) {
+                _toggleFullscreen();
+              } else {
+                Navigator.pop(context);
+              }
+            },
           ),
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(
-              _isFullscreen
-                  ? Icons.fullscreen_exit_rounded
-                  : Icons.fullscreen_rounded,
-              color: const Color(0xFF0F172A),
+          title: Text(
+            _isFullscreen ? _currentTitle : 'Detail Referensi Medis',
+            style: const TextStyle(
+              color: Color(0xFF0F172A),
+              fontWeight: FontWeight.w700,
+              fontSize: 17,
+              fontFamily: 'Nunito',
             ),
-            tooltip: _isFullscreen ? 'Keluar Layar Penuh' : 'Layar Penuh',
-            onPressed: _toggleFullscreen,
           ),
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
-            tooltip: 'Muat Ulang Dokumen',
-            onPressed: _initReader,
+          actions: [
+            if (_isFullscreen)
+              IconButton(
+                icon: const Icon(Icons.fullscreen_exit_rounded, color: Color(0xFF0F172A)),
+                tooltip: 'Keluar Layar Penuh',
+                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                onPressed: _toggleFullscreen,
+              ),
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
+              tooltip: 'Muat Ulang Referensi',
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+              onPressed: _isLoading ? null : _loadReference,
+            ),
+          ],
+          bottom: const PreferredSize(
+            preferredSize: Size.fromHeight(1),
+            child: Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
           ),
-          IconButton(
-            icon: const Icon(Icons.open_in_browser_rounded,
-                color: Color(0xFF0F172A)),
-            tooltip: 'Buka Dokumen Asli',
-            onPressed: _openInExternalBrowser,
-          ),
-        ],
-        bottom: const PreferredSize(
-          preferredSize: Size.fromHeight(1),
-          child: Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
         ),
+        body: _isFullscreen
+            ? _buildReaderView()
+            : ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                children: [
+                  // 1. Comprehensive Citation & Metadata Card
+                  _buildMetadataCard(),
+
+                  const SizedBox(height: 16),
+
+                  // 2. Interactive In-App Flipbook Reader Viewport
+                  _buildReaderSection(),
+
+                  const SizedBox(height: 14),
+
+                  // 3. Reader Quick Actions Bar
+                  _buildQuickActionsBar(),
+
+                  const SizedBox(height: 24),
+
+                  // 4. Related References
+                  _buildRelatedReferencesSection(),
+
+                  const SizedBox(height: 32),
+                ],
+              ),
       ),
-      body: _isFullscreen
-          ? _buildReaderView()
-          : ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              children: [
-                // 1. Comprehensive Citation & Metadata Card
-                _buildMetadataCard(),
-
-                const SizedBox(height: 16),
-
-                // 2. Interactive In-App Flipbook Reader Viewport
-                _buildReaderSection(),
-
-                const SizedBox(height: 14),
-
-                // 3. Reader Quick Actions Bar
-                _buildQuickActionsBar(),
-
-                const SizedBox(height: 24),
-
-                // 4. Related References
-                _buildRelatedReferencesSection(),
-
-                const SizedBox(height: 32),
-              ],
-            ),
     );
   }
 
@@ -571,7 +706,7 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   ElevatedButton.icon(
-                    onPressed: _initReader,
+                    onPressed: _loadReference,
                     icon: const Icon(Icons.refresh_rounded, size: 16),
                     label: const Text('Coba Lagi'),
                     style: ElevatedButton.styleFrom(
@@ -722,8 +857,6 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
         .where((it) => (it['url'] ?? '').toString() != _currentUrl)
         .toList();
 
-    if (otherItems.isEmpty) return const SizedBox.shrink();
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -744,66 +877,171 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
           ],
         ),
         const SizedBox(height: 12),
-        ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: otherItems.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 8),
-          itemBuilder: (context, idx) {
-            final item = otherItems[idx];
-            final itemTitle =
-                (item['title'] ?? 'Referensi Medis').toString();
-            final itemAuthor = item['author'] as String?;
-            final itemYear = item['year'] as String?;
+        if (otherItems.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.info_outline_rounded, size: 20, color: Color(0xFF94A3B8)),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Tidak ada referensi terkait lainnya.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF64748B),
+                      fontFamily: 'Inter',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: otherItems.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (context, idx) {
+              final item = otherItems[idx];
+              final itemTitle =
+                  (item['title'] ?? 'Referensi Medis').toString();
+              final itemUrl = (item['url'] ?? '').toString();
+              final itemAuthor = item['author'] as String?;
+              final itemYear = item['year'] as String?;
+              final format = _detectFormat(item);
 
-            return Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: ListTile(
-                onTap: () => _switchReference(item),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                leading: Container(
-                  width: 40,
-                  height: 40,
+              Widget leadingWidget;
+              String badgeLabel;
+              Color badgeBg;
+              Color badgeText;
+
+              if (format == 'VIDEO') {
+                final thumbUrl = YouTubeHelper.getThumbnailUrl(itemUrl);
+                badgeLabel = 'Video';
+                badgeBg = const Color(0xFFFEE2E2);
+                badgeText = const Color(0xFFDC2626);
+                leadingWidget = ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    color: const Color(0xFFE2E8F0),
+                    child: thumbUrl.isNotEmpty
+                        ? Image.network(
+                            thumbUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const Center(
+                              child: Icon(Icons.play_circle_outline, color: Color(0xFF10B981)),
+                            ),
+                          )
+                        : const Center(
+                            child: Icon(Icons.play_circle_outline, color: Color(0xFF10B981)),
+                          ),
+                  ),
+                );
+              } else if (format == 'PDF') {
+                badgeLabel = 'Modul PDF';
+                badgeBg = const Color(0xFFFEF2F2);
+                badgeText = const Color(0xFFEF4444);
+                leadingWidget = Container(
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
                     color: const Color(0xFFFEF2F2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.picture_as_pdf_rounded,
                       color: Color(0xFFEF4444), size: 22),
-                ),
-                title: Text(
-                  itemTitle,
-                  style: const TextStyle(
-                    fontFamily: 'Nunito',
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF0F172A),
+                );
+              } else {
+                badgeLabel = 'Artikel / Link';
+                badgeBg = const Color(0xFFE0F2FE);
+                badgeText = const Color(0xFF0284C7);
+                leadingWidget = Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE0F2FE),
+                    borderRadius: BorderRadius.circular(8),
                   ),
+                  child: const Icon(Icons.article_rounded,
+                      color: Color(0xFF0284C7), size: 22),
+                );
+              }
+
+              return Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
                 ),
-                subtitle: (itemAuthor != null && itemAuthor.trim().isNotEmpty) ||
-                        (itemYear != null && itemYear.trim().isNotEmpty)
-                    ? Text(
-                        '${itemAuthor ?? ''} ${itemYear != null ? '($itemYear)' : ''}'.trim(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 12,
-                          color: Color(0xFF64748B),
+                child: ListTile(
+                  onTap: () => _handleSiblingTap(item),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                  leading: leadingWidget,
+                  title: Text(
+                    itemTitle,
+                    style: const TextStyle(
+                      fontFamily: 'Nunito',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: badgeBg,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            badgeLabel,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: badgeText,
+                              fontFamily: 'Inter',
+                            ),
+                          ),
                         ),
-                      )
-                    : null,
-                trailing: const Icon(Icons.arrow_forward_ios_rounded,
-                    size: 14, color: kPrimary),
-              ),
-            );
-          },
-        ),
+                        if ((itemAuthor != null && itemAuthor.trim().isNotEmpty) ||
+                            (itemYear != null && itemYear.trim().isNotEmpty)) ...[
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '${itemAuthor ?? ''} ${itemYear != null ? '($itemYear)' : ''}'.trim(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 12,
+                                color: Color(0xFF64748B),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  trailing: const Icon(Icons.arrow_forward_ios_rounded,
+                      size: 14, color: kPrimary),
+                ),
+              );
+            },
+          ),
       ],
     );
   }

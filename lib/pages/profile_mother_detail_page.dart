@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../services/api_client.dart';
+import '../core/weight_formatter.dart';
 
 class ProfileMotherDetailPage extends StatefulWidget {
   const ProfileMotherDetailPage({super.key});
@@ -23,6 +25,7 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
   final _birthWeight = TextEditingController();
   final _address = TextEditingController();
 
+  DateTime? _babyBirthDate;
   String? _education;
   String? _job;
   String? _delivery;
@@ -129,12 +132,17 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
         _birthWeight.text = (p['birthWeight']?.toString() ?? '');
         _address.text = (p['address'] as String?) ?? '';
 
-        _education = p['education'] as String?;
-        _job = p['job'] as String?;
+        final rawEdu = p['education'] as String?;
+        _education = (rawEdu == 'Perguruan Tinggi') ? 'PT' : rawEdu;
+
+        final rawJob = p['job'] as String?;
+        _job = (rawJob == 'Lainnya') ? 'LAINNYA' : rawJob;
+
         _delivery = p['delivery'] as String?;
         _gender = p['babyGender'] as String?;
 
         _babyName.text = (infant?['name'] as String?) ?? '';
+        _babyBirthDate = ApiClient.parseDate(infant?['birthDate']);
 
         _loading = false;
       });
@@ -173,9 +181,12 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
       'babyGender': _gender,
       'birthWeight': _toInt(_birthWeight),
       'address': _address.text.trim().isEmpty ? null : _address.text.trim(),
+      'birthDate': ApiClient.formatDateTimeIso(_babyBirthDate),
     };
     final bn = _babyName.text.trim();
-    final bodyInfant = <String, dynamic>{};
+    final bodyInfant = <String, dynamic>{
+      'birthDate': ApiClient.formatDateTimeIso(_babyBirthDate),
+    };
     if (bn.isNotEmpty) bodyInfant['name'] = bn;
 
     setState(() => _loading = true);
@@ -311,13 +322,26 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
                               label: 'Pendidikan Terakhir',
                               value: _education,
                               items: const ['SD', 'SMP', 'SMA', 'PT'],
+                              itemLabels: const {
+                                'SD': 'SD',
+                                'SMP': 'SMP',
+                                'SMA': 'SMA',
+                                'PT': 'Perguruan Tinggi',
+                              },
                               onChanged: (v) => setState(() => _education = v),
                             ),
                             const SizedBox(height: 12),
                             _buildDropdown(
                               label: 'Pekerjaan',
                               value: _job,
-                              items: const ['IRT', 'KARYAWAN', 'PNS', 'WIRASWASTA'],
+                              items: const ['IRT', 'KARYAWAN', 'PNS', 'WIRASWASTA', 'LAINNYA'],
+                              itemLabels: const {
+                                'IRT': 'IRT',
+                                'KARYAWAN': 'Karyawan',
+                                'PNS': 'PNS',
+                                'WIRASWASTA': 'Wiraswasta',
+                                'LAINNYA': 'Lainnya',
+                              },
                               onChanged: (v) => setState(() => _job = v),
                             ),
                             const SizedBox(height: 12),
@@ -325,8 +349,14 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
                           ] else ...[
                             _buildViewRow('Nama Lengkap', _motherName.text),
                             _buildViewRow('Usia Ibu', _age.text.isNotEmpty ? '${_age.text} tahun' : '-'),
-                            _buildViewRow('Pendidikan Terakhir', _education ?? '-'),
-                            _buildViewRow('Pekerjaan', _job ?? '-'),
+                            _buildViewRow(
+                              'Pendidikan Terakhir',
+                              _education == 'PT' ? 'Perguruan Tinggi' : (_education ?? '-'),
+                            ),
+                            _buildViewRow(
+                              'Pekerjaan',
+                              _job == 'LAINNYA' ? 'Lainnya' : (_job ?? '-'),
+                            ),
                             _buildViewRow('Alamat Lengkap', _address.text, isLast: true),
                           ],
                         ],
@@ -378,6 +408,17 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
                               onChanged: (v) => setState(() => _gender = v),
                             ),
                             const SizedBox(height: 12),
+                            _buildDateRow(
+                              label: 'Tanggal Lahir Bayi (DOB)',
+                              value: _babyBirthDate,
+                              onPick: () => _pickDate(
+                                current: _babyBirthDate,
+                                onChanged: (d) => setState(() => _babyBirthDate = d),
+                                helpText: 'Pilih Tanggal Lahir Bayi',
+                              ),
+                              onClear: () => setState(() => _babyBirthDate = null),
+                            ),
+                            const SizedBox(height: 12),
                             _buildTextField(
                               c: _birthWeight,
                               label: 'Berat Lahir (gram)',
@@ -399,7 +440,13 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
                                   ? 'Laki-laki'
                                   : (_gender == 'PEREMPUAN' ? 'Perempuan' : (_gender ?? '-')),
                             ),
-                            _buildViewRow('Berat Lahir', _birthWeight.text.isNotEmpty ? '${_birthWeight.text} gram' : '-'),
+                            _buildViewRow(
+                              'Tanggal Lahir',
+                              _babyBirthDate != null
+                                  ? DateFormat('d MMMM yyyy', 'id_ID').format(_babyBirthDate!)
+                                  : '-',
+                            ),
+                            _buildViewRow('Berat Lahir', _birthWeight.text.isNotEmpty ? WeightFormatter.formatGrams(int.tryParse(_birthWeight.text)) : '-'),
                             _buildViewRow('Usia Kehamilan', _gestWeeks.text.isNotEmpty ? '${_gestWeeks.text} minggu' : '-', isLast: true),
                           ],
                         ],
@@ -407,40 +454,43 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
 
                       if (_editing) ...[
                         const SizedBox(height: 24),
-                        Row(
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Expanded(
-                              child: SizedBox(
-                                height: 48,
-                                child: FilledButton(
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: const Color(0xFF10B981),
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  ),
-                                  onPressed: _loading ? null : _save,
-                                  child: const Text(
-                                    'Simpan Perubahan',
-                                    style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
-                                  ),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 48,
+                              child: FilledButton(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFF10B981),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  elevation: 0,
+                                ),
+                                onPressed: _loading ? null : _save,
+                                child: const Text(
+                                  'Simpan Perubahan',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: SizedBox(
-                                height: 48,
-                                child: OutlinedButton(
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: const Color(0xFF475569),
-                                    side: const BorderSide(color: Color(0xFFE2E8F0)),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  ),
-                                  onPressed: () => setState(() => _editing = false),
-                                  child: const Text(
-                                    'Batal',
-                                    style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15),
-                                  ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 48,
+                              child: OutlinedButton(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF475569),
+                                  side: const BorderSide(color: Color(0xFFE2E8F0)),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                onPressed: () => setState(() => _editing = false),
+                                child: const Text(
+                                  'Batal',
+                                  maxLines: 1,
+                                  style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15),
                                 ),
                               ),
                             ),
@@ -613,6 +663,110 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
           }).toList(),
           onChanged: onChanged,
         ),
+      ),
+    );
+  }
+
+  Future<void> _pickDate({
+    required DateTime? current,
+    required ValueChanged<DateTime?> onChanged,
+    required String helpText,
+  }) async {
+    if (_isObserver || !_editing) return;
+    final now = DateTime.now();
+    final initial = current ?? now;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(now.year + 1),
+      helpText: helpText,
+      cancelText: 'Batal',
+      confirmText: 'Pilih',
+      locale: const Locale('id', 'ID'),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF10B981),
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: Color(0xFF0F172A),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null && mounted) {
+      onChanged(DateTime(picked.year, picked.month, picked.day));
+    }
+  }
+
+  Widget _buildDateRow({
+    required String label,
+    required DateTime? value,
+    required VoidCallback onPick,
+    required VoidCallback onClear,
+  }) {
+    final disabled = _isObserver || !_editing;
+    final dateStr = value != null ? DateFormat('d MMMM yyyy', 'id_ID').format(value) : 'Belum dipilih';
+
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(
+          fontFamily: 'Inter',
+          color: Color(0xFF475569),
+          fontWeight: FontWeight.w400,
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              dateStr,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                fontWeight: value != null ? FontWeight.w600 : FontWeight.w400,
+                color: value != null ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
+              ),
+            ),
+          ),
+          if (!disabled)
+            SizedBox(
+              height: 38,
+              child: TextButton.icon(
+                onPressed: onPick,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  foregroundColor: const Color(0xFF10B981),
+                ),
+                icon: const Icon(Icons.edit_calendar_outlined, size: 18),
+                label: const Text('Pilih', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13)),
+              ),
+            ),
+          if (value != null && !disabled)
+            SizedBox(
+              width: 32,
+              height: 38,
+              child: IconButton(
+                onPressed: onClear,
+                padding: EdgeInsets.zero,
+                icon: const Icon(Icons.clear_rounded, size: 18, color: Color(0xFF94A3B8)),
+              ),
+            ),
+        ],
       ),
     );
   }

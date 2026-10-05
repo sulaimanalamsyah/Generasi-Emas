@@ -13,6 +13,7 @@
 
         <activity
             android:name=".MainActivity"
+            android:label="ENI Care"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""

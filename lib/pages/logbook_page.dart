@@ -101,14 +101,19 @@ class _LogbookPageState extends State<LogbookPage> {
     return List.generate(14, (i) => start.add(Duration(days: i)));
   }
 
-  // Computed Statistics Getters
-  int get _completedCount => _entriesByDayIndex.length;
+  // Computed Statistics Getters (strictly bounded to the 14-day I-FINC program window)
+  int get _completedCount =>
+      _entriesByDayIndex.keys.where((k) => k >= 1 && k <= 14).length;
 
-  int get _totalDuration => _entriesByDayIndex.values
-      .fold(0, (sum, e) => sum + ((e['durationMinutes'] as int?) ?? 0));
+  int get _unfilledCount => (14 - _completedCount).clamp(0, 14);
 
-  int get _targetMetCount =>
-      _entriesByDayIndex.values.where((e) => e['coTargetMet'] == true).length;
+  int get _totalDuration => _entriesByDayIndex.entries
+      .where((e) => e.key >= 1 && e.key <= 14)
+      .fold(0, (sum, e) => sum + ((e.value['durationMinutes'] as int?) ?? 0));
+
+  int get _targetMetCount => _entriesByDayIndex.entries
+      .where((e) => e.key >= 1 && e.key <= 14 && e.value['coTargetMet'] == true)
+      .length;
 
   bool _isToday(DateTime dayDate) {
     final today = _localDateOnly(DateTime.now());
@@ -133,7 +138,9 @@ class _LogbookPageState extends State<LogbookPage> {
         final idx = m['dayIndex'];
 
         if (idx != null && idx is int) {
-          _entriesByDayIndex[idx] = m;
+          if (idx >= 1 && idx <= 14) {
+            _entriesByDayIndex[idx] = m;
+          }
         } else {
           final dateLog = ApiClient.parseDate(m['date']);
           if (_fincStartLocal != null && dateLog != null) {
@@ -141,7 +148,9 @@ class _LogbookPageState extends State<LogbookPage> {
                     .difference(_localDateOnly(_fincStartLocal!))
                     .inDays +
                 1;
-            _entriesByDayIndex[diff] = m;
+            if (diff >= 1 && diff <= 14) {
+              _entriesByDayIndex[diff] = m;
+            }
           }
         }
       }
@@ -151,7 +160,12 @@ class _LogbookPageState extends State<LogbookPage> {
       if (e is ApiError && e.status == 0) {
         _showDialogInfo("Offline", "Gagal memuat logbook. Periksa koneksi internet Anda.", isError: true);
       } else {
-        _showDialogInfo("Gagal Memuat", "$e", isError: true);
+        final errStr = e.toString();
+        if (errStr.contains('500') || errStr.contains('Internal Server Error')) {
+          _showDialogInfo("Gagal Memuat", "Terjadi kendala pada server saat memuat logbook. Silakan coba lagi nanti.", isError: true);
+        } else {
+          _showDialogInfo("Gagal Memuat", "$e", isError: true);
+        }
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -431,7 +445,12 @@ class _LogbookPageState extends State<LogbookPage> {
         if (e is ApiError && e.status == 0) {
           _showDialogInfo("Gagal Hapus", "Tidak ada internet. Gagal menghapus data.", isError: true);
         } else {
-          _showDialogInfo("Gagal", "Gagal menghapus: $e", isError: true);
+          final errStr = e.toString();
+          if (errStr.contains('500') || errStr.contains('Internal Server Error')) {
+            _showDialogInfo("Gagal", "Terjadi kendala pada server saat menghapus logbook. Silakan coba lagi nanti.", isError: true);
+          } else {
+            _showDialogInfo("Gagal", "Gagal menghapus: $e", isError: true);
+          }
         }
       }
     }
@@ -510,7 +529,19 @@ class _LogbookPageState extends State<LogbookPage> {
         if (e is ApiError && e.status == 0) {
           _showDialogInfo("Gagal Simpan", "Tidak ada internet. Logbook gagal disimpan.", isError: true);
         } else {
-          _showDialogInfo("Gagal", "Gagal menyimpan logbook: $e", isError: true);
+          final errStr = e.toString();
+          if (errStr.contains('Unique constraint') ||
+              errStr.contains('P2002') ||
+              errStr.contains('500') ||
+              errStr.contains('Internal Server Error')) {
+            _showDialogInfo(
+              "Gagal",
+              "Terjadi kendala pada server saat menyimpan logbook. Silakan coba sesaat lagi.",
+              isError: true,
+            );
+          } else {
+            _showDialogInfo("Gagal", "Gagal menyimpan logbook: $e", isError: true);
+          }
         }
       }
     });
@@ -575,7 +606,7 @@ class _LogbookPageState extends State<LogbookPage> {
                       }
 
                       final filteredDayEntries = _getFilteredDays(days);
-                      final unfilledCount = 14 - _completedCount;
+                      final unfilledCount = _unfilledCount;
 
                       return ListView(
                         padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),

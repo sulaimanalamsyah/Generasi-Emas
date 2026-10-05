@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import '../core/constants.dart';
 import '../core/storage.dart';
+import '../core/link_utils.dart';
 import '../app.dart';
 import '../routes.dart';
 
@@ -44,6 +46,17 @@ class ApiError implements Exception {
   final String message;
   final Object? detail;
   ApiError(this.message, {this.status, this.detail});
+
+  String get userFriendlyMessage {
+    if (status == 408) {
+      return 'Waktu Permintaan Habis: Sambungan ke server memerlukan waktu terlalu lama. Silakan periksa jaringan internet Anda dan coba lagi.';
+    }
+    if (status == 0) {
+      return 'Tidak ada koneksi internet. Mohon periksa jaringan Anda.';
+    }
+    return message;
+  }
+
   @override
   String toString() => 'ApiError($status): $message';
 }
@@ -56,6 +69,8 @@ class ApiClient {
 
   // Lock untuk mencegah multiple refresh token calls
   bool _isRefreshing = false;
+  // Lock untuk mencegah multiple force logout / session eviction calls
+  bool _isEvictingSession = false;
 
   factory ApiClient() {
     return _instance;
@@ -105,7 +120,7 @@ class ApiClient {
     return h;
   }
 
-  // [UPDATE] _handle sekarang hanya parsing JSON, logika 401 dipindah ke _withRetry
+  // [UPDATE] _handle sekarang hanya parsing JSON dan memformat pesan error yang ramah
   Future<dynamic> _handle(http.Response r) async {
     final txt = r.body.isEmpty ? '{}' : r.body;
     dynamic j;
@@ -117,23 +132,44 @@ class ApiClient {
 
     if (r.statusCode >= 200 && r.statusCode < 300) return j;
 
-    // Jika masih masuk sini dengan 401, berarti retry gagal atau endpoint non-auth
+    String? serverMsg;
+    if (j is Map) {
+      if (j['issues'] is List && (j['issues'] as List).isNotEmpty) {
+        final first = (j['issues'] as List).first;
+        if (first is Map && first['message'] is String && (first['message'] as String).trim().isNotEmpty) {
+          serverMsg = (first['message'] as String).trim();
+        }
+      }
+      if (serverMsg == null && j['message'] is String && (j['message'] as String).trim().isNotEmpty) {
+        serverMsg = (j['message'] as String).trim();
+      }
+    }
+
     if (r.statusCode == 401) {
-      throw ApiError('Unauthorized', status: 401, detail: j);
+      final msg = serverMsg ?? 'Email atau kata sandi salah. Silakan periksa kembali.';
+      throw ApiError(msg, status: 401, detail: j);
+    }
+
+    if (r.statusCode == 403) {
+      final msg = serverMsg ?? 'Akses ditolak atau akun belum diaktivasi.';
+      throw ApiError(msg, status: 403, detail: j);
+    }
+
+    if (r.statusCode == 404) {
+      final msg = serverMsg ?? 'Data atau layanan tidak ditemukan.';
+      throw ApiError(msg, status: 404, detail: j);
+    }
+
+    if (r.statusCode == 429) {
+      final msg = serverMsg ?? 'Terlalu banyak percobaan. Silakan coba beberapa saat lagi.';
+      throw ApiError(msg, status: 429, detail: j);
     }
 
     throw ApiError(
-      j is Map && j['message'] is String ? j['message'] : 'Request gagal',
+      serverMsg ?? 'Terjadi kesalahan pada server (${r.statusCode}).',
       status: r.statusCode,
       detail: j,
     );
-  }
-
-  String _normalizeIdPhone(String raw) {
-    var p = raw.replaceAll(RegExp(r'\D'), '');
-    if (p.startsWith('0')) p = '62${p.substring(1)}';
-    if (p.startsWith('8')) p = '62$p';
-    return p;
   }
 
   // ==========================================================
@@ -169,16 +205,24 @@ class ApiClient {
           return _handle(retryResponse);
         } else {
           debugPrint("❌ Refresh Gagal. Logout Paksa.");
-          await _forceLogout();
+          await _forceLogout(message: "Sesi berakhir, silakan login kembali.");
           throw ApiError("Sesi berakhir, silakan login kembali.", status: 401);
         }
+      }
+
+      // 3. Jika 403 Forbidden -> Sesi Invalid / Akses Ditolak -> Logout Paksa
+      if (response.statusCode == 403) {
+        debugPrint("⛔ Akses Ditolak / Sesi Tidak Valid (403). Logout Paksa.");
+        await _forceLogout(message: "Sesi Anda telah berakhir atau tidak memiliki izin akses. Silakan masuk kembali.");
+        throw ApiError("Sesi Anda telah berakhir atau tidak memiliki izin akses. Silakan masuk kembali.", status: 403);
       }
 
       // Jika error lain, lempar ke _handle
       return _handle(response);
 
-    } on TimeoutException {
-      throw ApiError('Koneksi timeout.', status: 408);
+    } on TimeoutException catch (e) {
+      debugPrint("⏱️ [HTTP 408 Timeout] Request timed out after ${AppEnv.apiTimeoutSeconds}s: $e");
+      throw ApiError('Waktu Permintaan Habis: Sambungan ke server memerlukan waktu terlalu lama. Silakan periksa jaringan internet Anda dan coba lagi.', status: 408);
     } catch (e) {
       if (e is ApiError) rethrow;
       throw ApiError('Gagal menghubungi server: $e', status: 0);
@@ -217,9 +261,61 @@ class ApiClient {
     return false;
   }
 
-  Future<void> _forceLogout() async {
-    await Prefs.clearAll();
-    navigatorKey.currentState?.pushNamedAndRemoveUntil(Routes.login, (route) => false);
+  Future<void> _forceLogout({String? message}) async {
+    if (_isEvictingSession) return;
+    _isEvictingSession = true;
+    try {
+      String? currentToken;
+      try {
+        currentToken = await FirebaseMessaging.instance.getToken();
+      } catch (_) {}
+      try {
+        await FirebaseMessaging.instance.deleteToken();
+      } catch (_) {}
+
+      await Prefs.clearAll();
+
+      if (currentToken != null && currentToken.isNotEmpty) {
+        await Prefs.setPendingFcmRevocation(currentToken);
+      }
+
+      navigatorKey.currentState?.pushNamedAndRemoveUntil(Routes.login, (route) => false);
+      if (message != null && message.isNotEmpty) {
+        scaffoldMessengerKey.currentState?.hideCurrentSnackBar();
+        scaffoldMessengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.info_outline, color: Colors.white, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    message,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: const Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            margin: const EdgeInsets.all(16),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Error saat force logout: $e");
+    } finally {
+      Future.delayed(const Duration(seconds: 1), () {
+        _isEvictingSession = false;
+      });
+    }
   }
 
   // Helper Simpan Cookie
@@ -280,53 +376,86 @@ class ApiClient {
   // [UPDATE] Login harus simpan Cookie secara manual sebelum _handle
   Future<Map<String, dynamic>> login({required String email, required String password}) async {
     await _checkConnection();
-    final r = await http.post(
-      Uri.parse('$base/api/auth/login'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email, 'password': password}),
-    );
+    try {
+      final r = await http.post(
+        Uri.parse('$base/api/auth/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'password': password}),
+      ).timeout(Duration(seconds: AppEnv.apiTimeoutSeconds));
 
-    // Tangkap Cookie dari header response
-    _saveCookieFromResponse(r);
+      // Tangkap Cookie dari header response
+      _saveCookieFromResponse(r);
 
-    final j = await _handle(r);
-    final token = j['token'] as String?;
-    if (token != null) await Prefs.setToken(token);
+      final j = await _handle(r);
+      final token = j['token'] as String?;
+      if (token != null) await Prefs.setToken(token);
 
-    return (j['user'] as Map).cast<String, dynamic>();
+      return (j['user'] as Map).cast<String, dynamic>();
+    } on TimeoutException {
+      throw ApiError(
+        'Waktu permintaan habis: Sambungan ke server memerlukan waktu terlalu lama. Silakan periksa jaringan internet Anda dan coba lagi.',
+        status: 408,
+      );
+    }
   }
 
   // [NOTE] Register tidak perlu simpan cookie karena biasanya setelah register harus login ulang
   // atau backend tidak kirim cookie saat register.
-  Future<void> register({required String name, required String phone, required String email, required String password, required String role}) async {
+  Future<dynamic> register({required String name, required String phone, required String email, required String password, required String role}) async {
     final r = await http.post(Uri.parse('$base/api/auth/register'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'name': name, 'phone': _normalizeIdPhone(phone), 'email': email, 'password': password, 'role': role}));
-    await _handle(r);
+        body: jsonEncode({'name': name, 'phone': normalizeIdPhone(phone), 'email': email, 'password': password, 'role': role}));
+    return await _handle(r);
   }
 
   Future<void> sendOtp({required String phone}) async {
-    await _post('$base/api/auth/otp/send', {'phone': _normalizeIdPhone(phone), 'purpose': 'activate'});
+    await _post('$base/api/auth/otp/send', {'phone': normalizeIdPhone(phone), 'purpose': 'activate'});
   }
   Future<void> sendOtpWhatsApp(String phone, {String purpose = 'activate'}) async {
-    await _post('$base/api/auth/otp/send', {'phone': _normalizeIdPhone(phone), 'purpose': purpose});
+    await _post('$base/api/auth/otp/send', {'phone': normalizeIdPhone(phone), 'purpose': purpose});
   }
   Future<void> verifyOtp({required String phone, required String code, String purpose = 'activate'}) async {
-    await _post('$base/api/auth/otp/verify', {'phone': _normalizeIdPhone(phone), 'code': code, 'purpose': purpose});
+    await _post('$base/api/auth/otp/verify', {'phone': normalizeIdPhone(phone), 'code': code, 'purpose': purpose});
   }
 
-  // [UPDATE] Logout juga harus clear cookie
+  Future<void> revokeFcmTokenPublic(String token) async {
+    await _post('$base/api/public/revoke-fcm-token', {'fcmToken': token}, auth: false);
+  }
+
+  // [UPDATE] Logout aman online/offline: membersihkan sesi & menangani deferred FCM revocation
   Future<void> logout() async {
-    try { await _post('$base/api/auth/logout', {}, auth: true); } catch (_) {} finally { await Prefs.clearAll(); }
+    String? currentToken;
+    try {
+      currentToken = await FirebaseMessaging.instance.getToken();
+    } catch (_) {}
+
+    bool serverSuccess = false;
+    try {
+      await _post('$base/api/auth/logout', {}, auth: true);
+      serverSuccess = true;
+    } catch (_) {
+      // Offline: backend tidak dapat dihubungi saat ini
+    }
+
+    try {
+      await FirebaseMessaging.instance.deleteToken();
+    } catch (_) {}
+
+    await Prefs.clearAll();
+
+    // JIKA logout server gagal (offline) dan token ada, simpan penanda agar di-revoke saat online
+    if (!serverSuccess && currentToken != null && currentToken.isNotEmpty) {
+      await Prefs.setPendingFcmRevocation(currentToken);
+    }
   }
 
   Future<void> requestPasswordReset({String? email, String? phone}) async {
     if (email != null && email.isNotEmpty) { await _post('$base/api/auth/password/forgot', {'email': email}); return; }
-    if (phone != null && phone.isNotEmpty) { await _post('$base/api/auth/password/reset/request-otp', {'phone': _normalizeIdPhone(phone)}); return; }
+    if (phone != null && phone.isNotEmpty) { await _post('$base/api/auth/password/reset/request-otp', {'phone': normalizeIdPhone(phone)}); return; }
     throw ApiError('Harus mengirim email ATAU phone');
   }
   Future<void> requestPasswordResetOtpWa({required String phone}) async {
-    await _post('$base/api/auth/password/reset/request-otp', {'phone': _normalizeIdPhone(phone)});
+    await _post('$base/api/auth/password/reset/request-otp', {'phone': normalizeIdPhone(phone)});
   }
   Future<void> resetPassword({String? token, String? newPassword, String? phone, String? code}) async {
     if ((newPassword == null) || newPassword.isEmpty) throw ApiError('newPassword wajib diisi');
@@ -335,7 +464,7 @@ class ApiClient {
     throw ApiError('Kirim (token) ATAU (phone + code)');
   }
   Future<void> resetPasswordByOtp({required String phone, required String code, required String newPassword}) async {
-    await _post('$base/api/auth/password/reset/confirm', {'phone': _normalizeIdPhone(phone), 'code': code, 'new_password': newPassword});
+    await _post('$base/api/auth/password/reset/confirm', {'phone': normalizeIdPhone(phone), 'code': code, 'new_password': newPassword});
   }
   Future<void> confirmPasswordResetOtpWa({required String phone, required String code, required String newPassword}) {
     return resetPasswordByOtp(phone: phone, code: code, newPassword: newPassword);
@@ -430,9 +559,33 @@ class ApiClient {
   Future<void> markFormDone({required String type, String? url}) async {
     await _post('$base/api/patient/me/pretests/complete', {'type': type, 'url': url}, auth: true);
   }
-  Future<void> linkPartner(String motherPhone) async {
-    await _post('$base/api/patient/link-partner', {'motherPhone': motherPhone}, auth: true);
+
+  Future<Map<String, dynamic>> requestLinkPartner(String motherPhone) async {
+    final j = await _post('$base/api/patient/partner/request', {'motherPhone': motherPhone}, auth: true);
+    return (j is Map) ? j.cast<String, dynamic>() : {};
   }
+
+  Future<Map<String, dynamic>> getPartnerStatus() async {
+    final j = await _get('$base/api/patient/partner/status', auth: true);
+    return (j is Map) ? j.cast<String, dynamic>() : {};
+  }
+
+  Future<Map<String, dynamic>> respondPartnerRequest({required String requestId, required bool approve}) async {
+    final j = await _post('$base/api/patient/partner/respond', {
+      'requestId': requestId,
+      'action': approve ? 'APPROVE' : 'REJECT',
+    }, auth: true);
+    return (j is Map) ? j.cast<String, dynamic>() : {};
+  }
+
+  Future<void> unlinkPartner() async {
+    await _post('$base/api/patient/partner/unlink', {}, auth: true);
+  }
+
+  Future<void> cancelPartnerRequest() async {
+    await _delete('$base/api/patient/partner/cancel', auth: true);
+  }
+
 
   // Nurse
   Future<List<dynamic>> nurseGetPatients() async {
@@ -447,9 +600,11 @@ class ApiClient {
     return (j is Map ? j : {'data': j})['data']?.cast<String, dynamic>() ?? (j as Map).cast<String, dynamic>();
   }
 
-  Future<List<dynamic>> nurseGetPatientLogbook(String patientId) async {
+  Future<Map<String, dynamic>> nurseGetPatientLogbook(String patientId) async {
     final j = await _get('$base/api/nurse/patients/$patientId/logbook', auth: true);
-    return (j['items'] as List?) ?? [];
+    if (j is Map) return j.cast<String, dynamic>();
+    if (j is List) return {'items': j};
+    return {'items': []};
   }
   Future<List<dynamic>> nurseGetPatientJournal(String patientId) async {
     final j = await _get('$base/api/nurse/patients/$patientId/journal', auth: true);
@@ -472,6 +627,15 @@ class ApiClient {
   Future<Map<String, dynamic>> nurseSyncScores() async {
     final j = await _post('$base/api/nurse/sync-scores', {}, auth: true);
     return (j as Map).cast<String, dynamic>();
+  }
+
+  // [ISOLASI DOMAIN] Endpoint Brainstorming Khusus Perawat
+  // Mengambil materi brainstorming perawat dari admin web secara eksklusif
+  Future<List<dynamic>> getNurseBrainstorming() async {
+    final j = await _get('$base/api/nurse/brainstorming', auth: true);
+    if (j is List) return j;
+    if (j is Map && j.containsKey('items')) return j['items'] as List<dynamic>;
+    return [];
   }
 
   // Pretest
@@ -571,5 +735,66 @@ class ApiClient {
       debugPrint("Gagal load banners: $e");
     }
     return [];
+  }
+
+  // ==========================================
+  // INFANT ANALYTICS & GROWTH MEASUREMENTS
+  // ==========================================
+
+  Future<Map<String, dynamic>> getInfantAnalytics([String? infantId]) async {
+    final targetId = (infantId != null && infantId.isNotEmpty) ? infantId : 'me';
+    final j = await _get('$base/api/analytics/infant/$targetId', auth: true);
+    if (j is Map<String, dynamic>) {
+      return j;
+    }
+    return {};
+  }
+
+  Future<Map<String, dynamic>> addGrowthMeasurement(String infantId, Map<String, dynamic> data) async {
+    final j = await _post('$base/api/analytics/infant/$infantId/measurement', data, auth: true);
+    if (j is Map<String, dynamic>) {
+      return j;
+    }
+    return {};
+  }
+
+  Future<Map<String, dynamic>> updateGrowthMeasurement(String infantId, int measurementId, Map<String, dynamic> data) async {
+    final j = await _put('$base/api/analytics/infant/$infantId/measurement/$measurementId', data, auth: true);
+    if (j is Map<String, dynamic>) {
+      return j;
+    }
+    return {};
+  }
+
+  Future<Map<String, dynamic>> reviewGrowthMeasurement(String infantId, int measurementId, Map<String, dynamic> data) async {
+    final j = await _put('$base/api/analytics/infant/$infantId/measurement/$measurementId/review', data, auth: true);
+    if (j is Map<String, dynamic>) {
+      return j;
+    }
+    return {};
+  }
+
+  Future<void> deleteGrowthMeasurement(String infantId, int measurementId) async {
+    await _delete('$base/api/analytics/infant/$infantId/measurement/$measurementId', auth: true);
+  }
+
+  Future<Map<String, dynamic>> addNurseReview(String infantId, Map<String, dynamic> data) async {
+    final j = await _post('$base/api/analytics/infant/$infantId/nurse-review', data, auth: true);
+    if (j is Map<String, dynamic>) {
+      return j;
+    }
+    return {};
+  }
+
+  Future<Map<String, dynamic>> updateNurseReview(String infantId, int reviewId, Map<String, dynamic> data) async {
+    final j = await _put('$base/api/analytics/infant/$infantId/nurse-review/$reviewId', data, auth: true);
+    if (j is Map<String, dynamic>) {
+      return j;
+    }
+    return {};
+  }
+
+  Future<void> deleteNurseReview(String infantId, int reviewId) async {
+    await _delete('$base/api/analytics/infant/$infantId/nurse-review/$reviewId', auth: true);
   }
 }

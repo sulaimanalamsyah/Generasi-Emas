@@ -8,7 +8,6 @@ import 'pages/login_page.dart';
 import 'pages/forgot_password_page.dart';
 import 'pages/reset_password_page.dart';
 import 'pages/pretest_page.dart';
-import 'pages/brainstorming_page.dart';
 import 'pages/video_page.dart';
 import 'pages/video_detail_page.dart';
 import 'pages/quiz_page.dart';
@@ -21,8 +20,6 @@ import 'pages/reference_detail_page.dart';
 import 'pages/contact_researchers_page.dart';
 import 'pages/modules_page.dart';
 import 'pages/module_detail_page.dart';
-import 'pages/profile_page.dart';
-import 'pages/nurse/folder_nurse_page.dart';
 import 'pages/nurse/brainstorming_nurse_page.dart';
 import 'pages/nurse/nurse_agg_page.dart';
 import 'pages/nurse/patient_detail_page.dart';
@@ -36,12 +33,14 @@ import 'pages/guide_page.dart';
 
 // [BARU] Import Privacy Policy Page
 import 'pages/privacy_policy_page.dart';
+import 'pages/infant_analytics_dashboard_page.dart';
 
 class Routes {
   // Patient
   static const splash = '/';
   static const start = '/start';
   static const register = '/register';
+  static const infantAnalytics = '/infant/analytics';
 
   // Consent
   static const consentReadOnly = '/consent';
@@ -61,7 +60,6 @@ class Routes {
   static const homePatient = '/homePatient';
   static const pretest = '/pretest';
   static const brainstorming = '/brainstorming';
-  static const video = '/video';
   static const videoDetail = '/video/detail';
   static const quiz = '/quiz';
   static const logbook = '/logbook';
@@ -73,14 +71,12 @@ class Routes {
   static const contactResearchers = '/contactResearchers';
   static const modules = '/modules';
   static const moduleDetail = '/modules/detail';
-  static const profile = '/profile';
   static const profileMotherDetail = '/profile/mother-detail';
   static const profileInfantDetail = '/profile/infant-detail';
   static const fatherLink = '/father/link';
 
   // Nurse
   static const nurseHome = '/nurse/home';
-  static const nurseFolder = '/nurse/folder';
   static const nurseBrainstorm = '/nurse/brainstorm';
   static const nurseAgg = '/nurse/agg';
   static const nursePatientDetail = '/nurse/patientDetail';
@@ -148,7 +144,6 @@ class Routes {
         return MaterialPageRoute(builder: (_) => const PretestPage());
 
       case brainstorming:
-      case video:
         return MaterialPageRoute(builder: (_) => const VideoPage());
 
       case videoDetail:
@@ -214,23 +209,26 @@ class Routes {
       case contactResearchers:
         return MaterialPageRoute(builder: (_) => const ContactResearchersPage(), settings: s);
 
-      case profile:
-        return MaterialPageRoute(builder: (_) => const ProfilePage());
-
       case profileMotherDetail:
         return MaterialPageRoute(builder: (_) => const ProfileMotherDetailPage());
 
       case profileInfantDetail:
         return MaterialPageRoute(builder: (_) => const ProfileInfantDetailPage());
 
+      case infantAnalytics:
+        final infId = (s.arguments is Map && (s.arguments as Map)['infantId'] is String)
+            ? (s.arguments as Map)['infantId'] as String
+            : (s.arguments is String ? s.arguments as String : null);
+        return MaterialPageRoute(
+          builder: (_) => InfantAnalyticsDashboardPage(infantId: infId),
+          settings: s,
+        );
+
       case fatherLink:
         return MaterialPageRoute(builder: (_) => const FatherLinkPage());
 
       case nurseHome:
         return MaterialPageRoute(builder: (_) => const NurseShell4());
-
-      case nurseFolder:
-        return MaterialPageRoute(builder: (_) => const FolderNursePage());
 
       case nurseBrainstorm:
         return MaterialPageRoute(builder: (_) => const BrainstormingNursePage());

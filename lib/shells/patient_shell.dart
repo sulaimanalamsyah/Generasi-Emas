@@ -3,6 +3,7 @@ import '../pages/home_patient_page.dart';
 import '../pages/baby_journal_page.dart';
 import '../pages/logbook_page.dart';
 import '../pages/profile_page.dart';
+import '../core/partner_sync.dart';
 import '../routes.dart';
 
 class PatientShell extends StatefulWidget {
@@ -49,6 +50,7 @@ class _PatientShellState extends State<PatientShell> {
   void _onSelect(int i) {
     if (i == _index) return;
     setState(() => _index = i);
+    PartnerSync.notify();
   }
 
   @override

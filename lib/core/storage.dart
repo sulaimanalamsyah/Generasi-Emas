@@ -16,11 +16,11 @@ class Prefs {
   static const _kDisplayName = 'display_name';
   static const _kRole = 'role';
   static const _kPretestDone = 'pretest_done';
-  static const _kPretestDateMs = 'pretest_date_ms';
   static const _kPhone = 'phone';
   static const _kToken = 'jwt';
   static const _kFormLinks = 'FORM_LINKS';
   static const _kCookie = 'auth_cookie';
+  static const _kPendingFcmRevocation = 'pending_fcm_revocation';
 
   // --- TOKEN (stored in Android Keystore / iOS Keychain) ---
   static Future<void> setToken(String v) async => _secure.write(key: _kToken, value: v);
@@ -55,11 +55,16 @@ class Prefs {
   static Future<void> setPretestDone(bool v) async => (await _p).setBool(_kPretestDone, v);
   static Future<bool> getPretestDone() async => (await _p).getBool(_kPretestDone) ?? false;
 
-  static Future<void> setPretestDateMs(int ms) async => (await _p).setInt(_kPretestDateMs, ms);
-  static Future<int?> getPretestDateMs() async => (await _p).getInt(_kPretestDateMs);
-
   static Future<void> setPhone(String v) async => (await _p).setString(_kPhone, v);
   static Future<String?> getPhone() async => (await _p).getString(_kPhone);
+
+  // --- OFFLINE FCM REVOCATION SYNC ---
+  static Future<void> setPendingFcmRevocation(String token) async =>
+      (await _p).setString(_kPendingFcmRevocation, token);
+  static Future<String?> getPendingFcmRevocation() async =>
+      (await _p).getString(_kPendingFcmRevocation);
+  static Future<void> clearPendingFcmRevocation() async =>
+      (await _p).remove(_kPendingFcmRevocation);
 
   // --- GENERIC HELPERS ---
   static Future<bool?> getBool(String key) async {
@@ -74,6 +79,7 @@ class Prefs {
   }
 
   static Future<void> clearAll() async {
+    await _secure.deleteAll();
     final p = await _p;
     await p.clear();
   }
