@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../services/api_client.dart';
 import '../routes.dart';
 import '../core/storage.dart';
+import '../widgets/common.dart';
 
 class LogbookPage extends StatefulWidget {
   const LogbookPage({super.key});
@@ -37,53 +38,13 @@ class _LogbookPageState extends State<LogbookPage> {
     }
   }
 
-  // Helper Alert Dialog with styled design
-  Future<void> _showDialogInfo(String title, String message, {bool isError = false}) {
-    return showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_outline : Icons.check_circle_outline,
-              color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontWeight: FontWeight.w700,
-                  color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          message,
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 14,
-            color: Color(0xFF0F172A),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text(
-              "OK",
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF10B981),
-              ),
-            ),
-          )
-        ],
-      ),
+  Future<void> _showDialogInfo(String title, String message, {bool isError = false, InfoDialogVariant? variant}) {
+    return showAppInfoDialog(
+      context,
+      title: title,
+      message: message,
+      isError: isError,
+      variant: variant,
     );
   }
 
@@ -121,44 +82,64 @@ class _LogbookPageState extends State<LogbookPage> {
     return today.isAtSameMomentAs(checkDate);
   }
 
-  Future<void> _loadAll() async {
-    setState(() => _loading = true);
+  static const _kLogbookCacheKey = 'patient_logbook_v1';
+
+  void _applyLogbookPayload(Map<String, dynamic> res) {
     _entriesByDayIndex.clear();
+    final fincStartRaw = res['fincStart'];
+    _fincStartLocal = ApiClient.parseDate(fincStartRaw);
 
-    try {
-      final Map<String, dynamic> res = await _api.getLogbook();
+    final List items = (res['items'] as List?) ?? [];
 
-      final fincStartRaw = res['fincStart'];
-      _fincStartLocal = ApiClient.parseDate(fincStartRaw);
+    for (final raw in items) {
+      final m = (raw as Map).cast<String, dynamic>();
+      final idx = m['dayIndex'];
 
-      final List items = res['items'] ?? [];
-
-      for (final raw in items) {
-        final m = (raw as Map).cast<String, dynamic>();
-        final idx = m['dayIndex'];
-
-        if (idx != null && idx is int) {
-          if (idx >= 1 && idx <= 14) {
-            _entriesByDayIndex[idx] = m;
-          }
-        } else {
-          final dateLog = ApiClient.parseDate(m['date']);
-          if (_fincStartLocal != null && dateLog != null) {
-            final diff = _localDateOnly(dateLog)
-                    .difference(_localDateOnly(_fincStartLocal!))
-                    .inDays +
-                1;
-            if (diff >= 1 && diff <= 14) {
-              _entriesByDayIndex[diff] = m;
-            }
+      if (idx != null && idx is int) {
+        if (idx >= 1 && idx <= 14) {
+          _entriesByDayIndex[idx] = m;
+        }
+      } else {
+        final dateLog = ApiClient.parseDate(m['date']);
+        if (_fincStartLocal != null && dateLog != null) {
+          final diff = _localDateOnly(dateLog)
+                  .difference(_localDateOnly(_fincStartLocal!))
+                  .inDays +
+              1;
+          if (diff >= 1 && diff <= 14) {
+            _entriesByDayIndex[diff] = m;
           }
         }
       }
+    }
+  }
+
+  Future<void> _loadAll() async {
+    setState(() => _loading = true);
+
+    try {
+      final Map<String, dynamic> res = await _api.getLogbook();
+      _applyLogbookPayload(res);
+      await Prefs.setCachedJson(_kLogbookCacheKey, res);
     } catch (e) {
       if (!mounted) return;
 
       if (e is ApiError && e.status == 0) {
-        _showDialogInfo("Offline", "Gagal memuat logbook. Periksa koneksi internet Anda.", isError: true);
+        final cached = await Prefs.getCachedJson(_kLogbookCacheKey);
+        if (!mounted) return;
+        if (cached is Map) {
+          _applyLogbookPayload(Map<String, dynamic>.from(cached));
+          showAppSnackBar(
+            context,
+            message: 'Menampilkan data terakhir tersimpan (mode luring).',
+          );
+        } else {
+          _showDialogInfo(
+            "Luring",
+            "Gagal memuat logbook. Periksa koneksi internet Anda.",
+            variant: InfoDialogVariant.warning,
+          );
+        }
       } else {
         final errStr = e.toString();
         if (errStr.contains('500') || errStr.contains('Internal Server Error')) {
@@ -240,140 +221,142 @@ class _LogbookPageState extends State<LogbookPage> {
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
-          left: 20,
-          right: 20,
-          top: 12,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFCBD5E1),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Detail Logbook',
-                  style: TextStyle(
-                    fontFamily: 'Nunito',
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
-                    color: Color(0xFF0F172A),
+        padding: sheetBottomPadding(ctx, top: 12, extra: 20),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFCBD5E1),
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                if (!_isFather)
-                  Row(
-                    children: [
-                      SizedBox(
-                        width: 40,
-                        height: 40,
-                        child: IconButton(
-                          padding: EdgeInsets.zero,
-                          icon: const Icon(Icons.edit_outlined, color: Color(0xFF0EA5E9), size: 20),
-                          tooltip: 'Edit',
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            if (date != null) {
-                              _showCreateSheet(
-                                initialDay: date,
-                                existingData: {
-                                  'duration': duration,
-                                  'coTarget': coTarget,
-                                  'attended': attended ?? true,
-                                  'note': noteClean
-                                },
-                              );
-                            }
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      SizedBox(
-                        width: 40,
-                        height: 40,
-                        child: IconButton(
-                          padding: EdgeInsets.zero,
-                          icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 20),
-                          tooltip: 'Hapus',
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            if (date != null) _confirmDelete(date);
-                          },
-                        ),
-                      ),
-                    ],
-                  )
-              ],
-            ),
-            const SizedBox(height: 16),
-            _row('Tanggal', date == null ? '-' : _formatDateFull(date)),
-            const SizedBox(height: 10),
-            _row('Durasi', duration == null ? '-' : '$duration menit'),
-            const SizedBox(height: 10),
-            _row('Target (CO Partner)', coTarget ? 'Tercapai' : 'Tidak tercapai'),
-            const SizedBox(height: 10),
-            _row('Absensi', attended == null ? '-' : (attended ? 'Hadir' : 'Tidak hadir')),
-            const SizedBox(height: 16),
-            const Divider(color: Color(0xFFE2E8F0)),
-            const SizedBox(height: 8),
-            const Text(
-              'Catatan',
-              style: TextStyle(
-                fontFamily: 'Nunito',
-                fontWeight: FontWeight.w700,
-                fontSize: 14,
-                color: Color(0xFF0F172A),
               ),
-            ),
-            const SizedBox(height: 6),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Detail Logbook',
+                      style: TextStyle(
+                        fontFamily: 'Nunito',
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                  ),
+                  if (!_isFather)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: IconButton(
+                            padding: EdgeInsets.zero,
+                            icon: const Icon(Icons.edit_outlined, color: Color(0xFF0EA5E9), size: 20),
+                            tooltip: 'Ubah',
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              if (date != null) {
+                                _showCreateSheet(
+                                  initialDay: date,
+                                  existingData: {
+                                    'duration': duration,
+                                    'coTarget': coTarget,
+                                    'attended': attended ?? true,
+                                    'note': noteClean
+                                  },
+                                );
+                              }
+                            },
+                          ),
+                        ),
+                        SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: IconButton(
+                            padding: EdgeInsets.zero,
+                            icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF4444), size: 20),
+                            tooltip: 'Hapus',
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              if (date != null) _confirmDelete(date);
+                            },
+                          ),
+                        ),
+                      ],
+                    )
+                ],
               ),
-              child: Text(
-                noteClean.isEmpty ? '-' : noteClean,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
+              const SizedBox(height: 16),
+              _row('Tanggal', date == null ? '-' : _formatDateFull(date)),
+              const SizedBox(height: 10),
+              _row('Durasi', duration == null ? '-' : '$duration menit'),
+              const SizedBox(height: 10),
+              _row('Target (CO Partner)', coTarget ? 'Tercapai' : 'Tidak tercapai'),
+              const SizedBox(height: 10),
+              _row('Absensi', attended == null ? '-' : (attended ? 'Hadir' : 'Tidak hadir')),
+              const SizedBox(height: 16),
+              const Divider(color: Color(0xFFE2E8F0)),
+              const SizedBox(height: 8),
+              const Text(
+                'Catatan',
+                style: TextStyle(
+                  fontFamily: 'Nunito',
+                  fontWeight: FontWeight.w700,
                   fontSize: 14,
-                  color: Color(0xFF475569),
-                  height: 1.4,
+                  color: Color(0xFF0F172A),
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
                 ),
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text(
-                  'Tutup',
-                  style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15),
+                child: Text(
+                  noteClean.isEmpty ? '-' : noteClean,
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 14,
+                    color: Color(0xFF475569),
+                    height: 1.4,
+                  ),
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 20),
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF10B981),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text(
+                      'Tutup',
+                      style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -382,57 +365,13 @@ class _LogbookPageState extends State<LogbookPage> {
   // Logic Delete
   Future<void> _confirmDelete(DateTime date) async {
     final dateStr = _formatDateFull(date);
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
-          "Hapus Logbook?",
-          style: TextStyle(
-            fontFamily: 'Nunito',
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF0F172A),
-          ),
-        ),
-        content: Text(
-          "Anda yakin ingin menghapus logbook tanggal $dateStr?",
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 14,
-            color: Color(0xFF475569),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text(
-              "Batal",
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF475569),
-              ),
-            ),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFEF4444),
-              foregroundColor: Colors.white,
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(
-              "Hapus",
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    ) ?? false;
+    final ok = await showAppConfirmDialog(
+      context,
+      title: "Hapus Logbook?",
+      message: "Anda yakin ingin menghapus logbook tanggal $dateStr?",
+      confirmLabel: "Hapus",
+      isDestructive: true,
+    );
 
     if (ok) {
       try {
@@ -458,23 +397,31 @@ class _LogbookPageState extends State<LogbookPage> {
 
   static Widget _row(String label, String value) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 14,
-            color: Color(0xFF475569),
+        Expanded(
+          flex: 4,
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 14,
+              color: Color(0xFF475569),
+            ),
           ),
         ),
-        Text(
-          value,
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF0F172A),
+        const SizedBox(width: 12),
+        Expanded(
+          flex: 6,
+          child: Text(
+            value,
+            textAlign: TextAlign.end,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF0F172A),
+            ),
           ),
         ),
       ],
@@ -571,25 +518,18 @@ class _LogbookPageState extends State<LogbookPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0.5,
-        title: const Text(
-          'Logbook Bayi',
-          style: TextStyle(
-            fontFamily: 'Nunito',
-            fontWeight: FontWeight.w800,
-            fontSize: 20,
-            color: Color(0xFF0F172A),
-          ),
-        ),
+      appBar: enicareAppBar(
+        context,
+        title: 'Logbook Ibu',
+        showBackButton: Navigator.of(context).canPop(),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)))
-          : _fincStartLocal == null
-              ? _buildNoStart()
-              : RefreshIndicator(
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)))
+            : _fincStartLocal == null
+                ? _buildNoStart()
+                : RefreshIndicator(
                   color: const Color(0xFF10B981),
                   onRefresh: _loadAll,
                   child: Builder(
@@ -648,9 +588,48 @@ class _LogbookPageState extends State<LogbookPage> {
                             endDate: days.isNotEmpty ? days.last : null,
                           ),
 
+                          const SizedBox(height: 10),
+
+                          // Shortcut Chip -> Jadwal Aktivitas NICU
+                          Material(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            child: InkWell(
+                              onTap: () => Navigator.pushNamed(context, Routes.guide),
+                              borderRadius: BorderRadius.circular(14),
+                              child: Container(
+                                constraints: const BoxConstraints(minHeight: 48),
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: const Color(0xFFBAE6FD)),
+                                  color: const Color(0xFFF0F9FF),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(Icons.schedule_rounded, size: 20, color: Color(0xFF0EA5E9)),
+                                    SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        'Jadwal Aktivitas NICU',
+                                        style: TextStyle(
+                                          fontFamily: 'Nunito',
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w800,
+                                          color: Color(0xFF0369A1),
+                                        ),
+                                      ),
+                                    ),
+                                    Icon(Icons.chevron_right_rounded, size: 22, color: Color(0xFF0284C7)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+
                           const SizedBox(height: 12),
 
-                          // 2. 14-Day Visual Matrix Grid (2 rows x 7 columns)
+                          // 2. 14-Day Visual Matrix Grid
                           _DayMatrixGrid(
                             days: days,
                             entries: _entriesByDayIndex,
@@ -737,6 +716,7 @@ class _LogbookPageState extends State<LogbookPage> {
                     },
                   ),
                 ),
+      ),
     );
   }
 
@@ -1030,34 +1010,41 @@ class _LogbookProgressCard extends StatelessWidget {
   }
 
   Widget _statItem(String label, String value, IconData icon, Color color) {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 14, color: color),
-            const SizedBox(width: 4),
-            Text(
-              value,
-              style: const TextStyle(
-                fontFamily: 'Nunito',
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF0F172A),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  value,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 11,
-            color: Color(0xFF64748B),
+            ],
           ),
-        ),
-      ],
+          const SizedBox(height: 2),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 11,
+              color: Color(0xFF64748B),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1077,6 +1064,7 @@ class _DayMatrixGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final now = DateTime.now().toLocal();
     final today = DateTime(now.year, now.month, now.day);
+    final fontFactor = MediaQuery.textScalerOf(context).scale(12) / 12.0;
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -1095,8 +1083,11 @@ class _DayMatrixGrid extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 4,
             children: [
               const Text(
                 'Matriks 14 Hari Perawatan',
@@ -1108,11 +1099,11 @@ class _DayMatrixGrid extends StatelessWidget {
                 ),
               ),
               Text(
-                'Tap hari untuk lihat/isi',
+                'Ketuk hari untuk lihat/isi',
                 style: TextStyle(
                   fontFamily: 'Inter',
                   fontSize: 11,
-                  color: Colors.grey.shade500,
+                  color: Colors.grey.shade600,
                 ),
               ),
             ],
@@ -1122,11 +1113,11 @@ class _DayMatrixGrid extends StatelessWidget {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: 14,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 7,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: fontFactor > 1.55 ? 5 : 7,
               mainAxisSpacing: 8,
               crossAxisSpacing: 8,
-              childAspectRatio: 1.0,
+              childAspectRatio: fontFactor > 1.25 ? 0.85 : 1.0,
             ),
             itemBuilder: (context, idx) {
               final dayIndex = idx + 1;
@@ -1213,43 +1204,43 @@ class _StatusFilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _chip('Semua ($totalCount)', 'ALL'),
-        const SizedBox(width: 8),
-        _chip('Sudah Diisi ($filledCount)', 'FILLED'),
-        const SizedBox(width: 8),
-        _chip('Belum Diisi ($unfilledCount)', 'UNFILLED'),
-      ],
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _chip('Semua ($totalCount)', 'ALL'),
+          const SizedBox(width: 8),
+          _chip('Sudah Diisi ($filledCount)', 'FILLED'),
+          const SizedBox(width: 8),
+          _chip('Belum Diisi ($unfilledCount)', 'UNFILLED'),
+        ],
+      ),
     );
   }
 
   Widget _chip(String label, String value) {
     final isSelected = selectedFilter == value;
-    return Expanded(
-      child: InkWell(
-        onTap: () => onFilterChanged(value),
-        borderRadius: BorderRadius.circular(10),
+    return InkWell(
+      onTap: () => onFilterChanged(value),
+      borderRadius: BorderRadius.circular(12),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 44),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             color: isSelected ? const Color(0xFFD1FAE5) : const Color(0xFFF1F5F9),
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isSelected ? const Color(0xFF10B981) : const Color(0xFFE2E8F0),
             ),
           ),
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 11,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                color: isSelected ? const Color(0xFF065F46) : const Color(0xFF475569),
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 12,
+              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              color: isSelected ? const Color(0xFF065F46) : const Color(0xFF475569),
             ),
           ),
         ),
@@ -1314,8 +1305,11 @@ class _DayCard extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          Wrap(
+                            alignment: WrapAlignment.spaceBetween,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 8,
+                            runSpacing: 6,
                             children: [
                               Text(
                                 'Hari ke-$dayIndex',
@@ -1491,25 +1485,12 @@ class _CreateLogbookSheetState extends State<_CreateLogbookSheet> {
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   Future<void> _pickDate() async {
-    final picked = await showDatePicker(
+    final picked = await showEnicareDatePicker(
       context: context,
       initialDate: _selected,
       firstDate: widget.startDate,
       lastDate: widget.endDate,
       helpText: 'Pilih tanggal dalam 14 hari program',
-      locale: const Locale('id', 'ID'),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF10B981),
-              onPrimary: Colors.white,
-              onSurface: Color(0xFF0F172A),
-            ),
-          ),
-          child: child!,
-        );
-      },
     );
     if (picked == null) return;
     if (!mounted) return;
@@ -1518,35 +1499,11 @@ class _CreateLogbookSheetState extends State<_CreateLogbookSheet> {
 
     if (widget.occupiedKeys.contains(key)) {
       if (!mounted) return;
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Row(
-            children: [
-              Icon(Icons.error_outline, color: Colors.orange),
-              SizedBox(width: 8),
-              Text(
-                "Peringatan",
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontWeight: FontWeight.w700,
-                  color: Colors.orange,
-                ),
-              ),
-            ],
-          ),
-          content: const Text(
-            'Tanggal tersebut sudah memiliki entri logbook.',
-            style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF0F172A)),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("OK", style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, color: Color(0xFF10B981))),
-            )
-          ],
-        ),
+      showAppInfoDialog(
+        context,
+        title: "Peringatan",
+        message: 'Tanggal tersebut sudah memiliki entri logbook.',
+        variant: InfoDialogVariant.warning,
       );
       return;
     }
@@ -1561,35 +1518,11 @@ class _CreateLogbookSheetState extends State<_CreateLogbookSheet> {
     if (durText.isNotEmpty) {
       final parsed = int.tryParse(durText);
       if (parsed == null || parsed < 0) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Row(
-              children: [
-                Icon(Icons.error_outline, color: Colors.orange),
-                SizedBox(width: 8),
-                Text(
-                  "Input Salah",
-                  style: TextStyle(
-                    fontFamily: 'Nunito',
-                    fontWeight: FontWeight.w700,
-                    color: Colors.orange,
-                  ),
-                ),
-              ],
-            ),
-            content: const Text(
-              'Durasi harus berupa angka (menit).',
-              style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF0F172A)),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text("OK", style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, color: Color(0xFF10B981))),
-              )
-            ],
-          ),
+        showAppInfoDialog(
+          context,
+          title: "Input Salah",
+          message: 'Durasi harus berupa angka (menit).',
+          variant: InfoDialogVariant.warning,
         );
         return;
       }
@@ -1609,82 +1542,87 @@ class _CreateLogbookSheetState extends State<_CreateLogbookSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final bottom = MediaQuery.of(context).viewInsets.bottom;
+    final dateField = InputDecorator(
+      decoration: InputDecoration(
+        labelText: 'Tanggal',
+        labelStyle: const TextStyle(fontFamily: 'Inter', color: Color(0xFF475569)),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        isDense: true,
+      ),
+      child: Text(
+        DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(_selected),
+        style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF0F172A)),
+      ),
+    );
+    final pickDateButton = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48),
+      child: OutlinedButton.icon(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFF10B981),
+          side: const BorderSide(color: Color(0xFF10B981)),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        onPressed: _pickDate,
+        icon: const Icon(Icons.edit_calendar_outlined, size: 18),
+        label: const Text(
+          'Ubah Tanggal',
+          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13),
+        ),
+      ),
+    );
+    final isLargeText = MediaQuery.textScalerOf(context).scale(14) > 18;
+
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      padding: EdgeInsets.only(bottom: bottom),
       child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFCBD5E1),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+        padding: sheetBottomPadding(context, top: 12, extra: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFCBD5E1),
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              Text(
-                _isEditing ? 'Ubah Logbook' : 'Isi Logbook',
-                style: const TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
-                ),
+            ),
+            Text(
+              _isEditing ? 'Ubah Logbook' : 'Isi Logbook',
+              style: const TextStyle(
+                fontFamily: 'Nunito',
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F172A),
               ),
-              const SizedBox(height: 16),
+            ),
+            const SizedBox(height: 16),
+            if (isLargeText) ...[
+              dateField,
+              const SizedBox(height: 10),
+              SizedBox(width: double.infinity, child: pickDateButton),
+            ] else
               Row(
                 children: [
-                  Expanded(
-                    child: InputDecorator(
-                      decoration: InputDecoration(
-                        labelText: 'Tanggal',
-                        labelStyle: const TextStyle(fontFamily: 'Inter', color: Color(0xFF475569)),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        isDense: true,
-                      ),
-                      child: Text(
-                        DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(_selected),
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF0F172A)),
-                      ),
-                    ),
-                  ),
+                  Expanded(child: dateField),
                   const SizedBox(width: 10),
-                  SizedBox(
-                    height: 48,
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF10B981),
-                        side: const BorderSide(color: Color(0xFF10B981)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: _pickDate,
-                      icon: const Icon(Icons.edit_calendar_outlined, size: 18),
-                      label: const Text(
-                        'Ubah Tanggal',
-                        style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13),
-                      ),
-                    ),
-                  ),
+                  pickDateButton,
                 ],
               ),
               const SizedBox(height: 16),
@@ -1760,31 +1698,33 @@ class _CreateLogbookSheetState extends State<_CreateLogbookSheet> {
               Row(
                 children: [
                   Expanded(
-                    child: SizedBox(
-                      height: 48,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 48),
                       child: FilledButton(
                         style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFF10B981),
                           foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
                         onPressed: _submit,
-                        child: const Text('Simpan', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15)),
+                        child: const Text('Simpan', textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15)),
                       ),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: SizedBox(
-                      height: 48,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 48),
                       child: OutlinedButton(
                         style: OutlinedButton.styleFrom(
                           foregroundColor: const Color(0xFF475569),
                           side: const BorderSide(color: Color(0xFFE2E8F0)),
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
                         onPressed: () => Navigator.pop(context),
-                        child: const Text('Batal', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15)),
+                        child: const Text('Batal', textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15)),
                       ),
                     ),
                   ),
@@ -1793,7 +1733,6 @@ class _CreateLogbookSheetState extends State<_CreateLogbookSheet> {
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 }

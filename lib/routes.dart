@@ -21,11 +21,11 @@ import 'pages/contact_researchers_page.dart';
 import 'pages/modules_page.dart';
 import 'pages/module_detail_page.dart';
 import 'pages/nurse/brainstorming_nurse_page.dart';
+import 'pages/nurse/home_nurse_page.dart';
 import 'pages/nurse/nurse_agg_page.dart';
 import 'pages/nurse/patient_detail_page.dart';
 import 'pages/nurse/quiz_nurse_page.dart';
 import 'shells/patient_shell.dart';
-import 'shells/nurse_shell_4.dart';
 import 'pages/profile_mother_detail_page.dart';
 import 'pages/profile_infant_detail_page.dart';
 import 'pages/father_link_page.dart';
@@ -228,7 +228,7 @@ class Routes {
         return MaterialPageRoute(builder: (_) => const FatherLinkPage());
 
       case nurseHome:
-        return MaterialPageRoute(builder: (_) => const NurseShell4());
+        return MaterialPageRoute(builder: (_) => const HomeNursePage());
 
       case nurseBrainstorm:
         return MaterialPageRoute(builder: (_) => const BrainstormingNursePage());
@@ -258,8 +258,11 @@ class Routes {
         final idxN = (s.arguments is Map && (s.arguments as Map)['index'] is int)
             ? (s.arguments as Map)['index'] as int
             : 0;
+        final Widget targetN = idxN == 1
+            ? const NurseAggPage()
+            : (idxN == 3 ? const QuizNursePage() : const HomeNursePage());
         return MaterialPageRoute(
-          builder: (_) => NurseShell4(initialIndex: idxN),
+          builder: (_) => targetN,
           settings: s,
         );
 

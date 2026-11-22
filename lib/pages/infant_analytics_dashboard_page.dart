@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 import '../core/age_calculator.dart';
+import '../core/storage.dart';
 import '../core/weight_formatter.dart';
 import '../services/api_client.dart';
 import '../widgets/common.dart';
@@ -26,6 +27,35 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
   GrowthMetricType _activeMetric = GrowthMetricType.weight;
   bool _isSubmitting = false;
   String? _submittingMessage;
+
+  static const List<EnicarePickerOption<String>> _clinicalStatusOptions = [
+    EnicarePickerOption(value: 'VALIDATED', label: 'Tervalidasi Sesuai (Tumbuh Baik)'),
+    EnicarePickerOption(value: 'MONITORING', label: 'Perlu Pemantauan Khusus'),
+    EnicarePickerOption(value: 'NEEDS_ATTENTION', label: 'Perlu Konsultasi Dokter Spesialis'),
+  ];
+
+  Widget _buildClinicalStatusField(
+    BuildContext sheetContext,
+    String currentStatus,
+    ValueChanged<String> onSelected,
+  ) {
+    final currentOpt = _clinicalStatusOptions.firstWhere(
+      (o) => o.value == currentStatus,
+      orElse: () => _clinicalStatusOptions.first,
+    );
+    return EnicarePickerField(
+      displayText: currentOpt.label,
+      isActive: true,
+      leadingIcon: Icons.verified_user_outlined,
+      onTap: () => showEnicareOptionSheet<String>(
+        sheetContext,
+        title: 'Status Evaluasi Klinis',
+        selectedValue: currentStatus,
+        options: _clinicalStatusOptions,
+        onSelected: onSelected,
+      ),
+    );
+  }
 
   List<Map<String, dynamic>> _sortMeasurementsByDateDesc(List<dynamic> rawMeasurements) {
     final list = rawMeasurements.map((e) => (e as Map).cast<String, dynamic>()).toList();
@@ -61,6 +91,15 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
     _loadAnalytics();
   }
 
+  int? _parseIntVal(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    return int.tryParse(raw.toString().trim());
+  }
+
+  String get _analyticsCacheKey => 'infant_analytics_v1_${widget.infantId ?? 'me'}';
+
   Future<void> _loadAnalytics({bool silent = false}) async {
     if (!silent) {
       setState(() {
@@ -71,6 +110,7 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
 
     try {
       final res = await _api.getInfantAnalytics(widget.infantId);
+      await Prefs.setCachedJson(_analyticsCacheKey, res);
       if (!mounted) return;
       setState(() {
         _data = res;
@@ -78,6 +118,22 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
       });
     } catch (e) {
       if (!mounted) return;
+      if (e is ApiError && e.status == 0) {
+        final cached = await Prefs.getCachedJson(_analyticsCacheKey);
+        if (!mounted) return;
+        if (cached is Map) {
+          setState(() {
+            _data = Map<String, dynamic>.from(cached);
+            _loading = false;
+            _errorMessage = null;
+          });
+          showAppSnackBar(
+            context,
+            message: 'Menampilkan data analitik tersimpan (mode luring).',
+          );
+          return;
+        }
+      }
       String msg = 'Gagal memuat analitik bayi: $e';
       if (e is ApiError) {
         if (e.status == 0) {
@@ -116,12 +172,7 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
         return StatefulBuilder(
           builder: (context, setSheetState) {
             return Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-              ),
+              padding: sheetBottomPadding(context, top: 20, extra: 20),
               child: SingleChildScrollView(
                 child: Form(
                   key: formKey,
@@ -133,13 +184,15 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
-                            'Catat Pengukuran Baru',
-                            style: TextStyle(
-                              fontFamily: 'Nunito',
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF0F172A),
+                          const Expanded(
+                            child: Text(
+                              'Catat Pengukuran Baru',
+                              style: TextStyle(
+                                fontFamily: 'Nunito',
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF0F172A),
+                              ),
                             ),
                           ),
                           IconButton(
@@ -158,7 +211,7 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                       const SizedBox(height: 6),
                       InkWell(
                         onTap: () async {
-                          final picked = await showDatePicker(
+                          final picked = await showEnicareDatePicker(
                             context: context,
                             initialDate: selectedDate,
                             firstDate: DateTime(2020),
@@ -473,12 +526,7 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
         return StatefulBuilder(
           builder: (context, setSheetState) {
             return Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-              ),
+              padding: sheetBottomPadding(context, top: 20, extra: 20),
               child: SingleChildScrollView(
                 child: Form(
                   key: formKey,
@@ -489,13 +537,15 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
-                            'Ubah Data Pengukuran',
-                            style: TextStyle(
-                              fontFamily: 'Nunito',
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF0F172A),
+                          const Expanded(
+                            child: Text(
+                              'Ubah Data Pengukuran',
+                              style: TextStyle(
+                                fontFamily: 'Nunito',
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF0F172A),
+                              ),
                             ),
                           ),
                           IconButton(
@@ -512,7 +562,7 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                       const SizedBox(height: 6),
                       InkWell(
                         onTap: () async {
-                          final picked = await showDatePicker(
+                          final picked = await showEnicareDatePicker(
                             context: context,
                             initialDate: selectedDate,
                             firstDate: DateTime(2020),
@@ -757,12 +807,7 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
         return StatefulBuilder(
           builder: (context, setSheetState) {
             return Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-              ),
+              padding: sheetBottomPadding(context, top: 20, extra: 20),
               child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -771,13 +816,15 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Tinjau Data Pengukuran',
-                          style: TextStyle(
-                            fontFamily: 'Nunito',
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
+                        const Expanded(
+                          child: Text(
+                            'Tinjau Data Pengukuran',
+                            style: TextStyle(
+                              fontFamily: 'Nunito',
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
                           ),
                         ),
                         IconButton(
@@ -797,33 +844,36 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                       style: TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF334155)),
                     ),
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: InkWell(
-                            onTap: () => setSheetState(() => currentStatus = 'VALID'),
-                            borderRadius: BorderRadius.circular(10),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-                              decoration: BoxDecoration(
-                                color: currentStatus == 'VALID' ? const Color(0xFFD1FAE5) : const Color(0xFFF8FAFC),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                  color: currentStatus == 'VALID' ? const Color(0xFF10B981) : const Color(0xFFE2E8F0),
-                                  width: currentStatus == 'VALID' ? 1.5 : 1,
-                                ),
+                    Builder(
+                      builder: (statusCtx) {
+                        final isLargeText = MediaQuery.textScalerOf(statusCtx).scale(12) > 16;
+                        final validBox = InkWell(
+                          onTap: () => setSheetState(() => currentStatus = 'VALID'),
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            constraints: const BoxConstraints(minHeight: 44),
+                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: currentStatus == 'VALID' ? const Color(0xFFD1FAE5) : const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: currentStatus == 'VALID' ? const Color(0xFF10B981) : const Color(0xFFE2E8F0),
+                                width: currentStatus == 'VALID' ? 1.5 : 1,
                               ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.check_circle_rounded,
-                                    size: 16,
-                                    color: currentStatus == 'VALID' ? const Color(0xFF059669) : const Color(0xFF94A3B8),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 16,
+                                  color: currentStatus == 'VALID' ? const Color(0xFF059669) : const Color(0xFF94A3B8),
+                                ),
+                                const SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
                                     'Valid (Normal)',
+                                    textAlign: TextAlign.center,
                                     style: TextStyle(
                                       fontFamily: 'Inter',
                                       fontSize: 12,
@@ -831,37 +881,38 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                                       color: currentStatus == 'VALID' ? const Color(0xFF065F46) : const Color(0xFF64748B),
                                     ),
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: InkWell(
-                            onTap: () => setSheetState(() => currentStatus = 'NEEDS_ATTENTION'),
-                            borderRadius: BorderRadius.circular(10),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-                              decoration: BoxDecoration(
-                                color: currentStatus == 'NEEDS_ATTENTION' ? const Color(0xFFFEF3C7) : const Color(0xFFF8FAFC),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                  color: currentStatus == 'NEEDS_ATTENTION' ? const Color(0xFFF59E0B) : const Color(0xFFE2E8F0),
-                                  width: currentStatus == 'NEEDS_ATTENTION' ? 1.5 : 1,
-                                ),
+                        );
+                        final attentionBox = InkWell(
+                          onTap: () => setSheetState(() => currentStatus = 'NEEDS_ATTENTION'),
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            constraints: const BoxConstraints(minHeight: 44),
+                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: currentStatus == 'NEEDS_ATTENTION' ? const Color(0xFFFEF3C7) : const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: currentStatus == 'NEEDS_ATTENTION' ? const Color(0xFFF59E0B) : const Color(0xFFE2E8F0),
+                                width: currentStatus == 'NEEDS_ATTENTION' ? 1.5 : 1,
                               ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.warning_amber_rounded,
-                                    size: 16,
-                                    color: currentStatus == 'NEEDS_ATTENTION' ? const Color(0xFFD97706) : const Color(0xFF94A3B8),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.warning_amber_rounded,
+                                  size: 16,
+                                  color: currentStatus == 'NEEDS_ATTENTION' ? const Color(0xFFD97706) : const Color(0xFF94A3B8),
+                                ),
+                                const SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
                                     'Perlu Perhatian',
+                                    textAlign: TextAlign.center,
                                     style: TextStyle(
                                       fontFamily: 'Inter',
                                       fontSize: 12,
@@ -869,12 +920,32 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                                       color: currentStatus == 'NEEDS_ATTENTION' ? const Color(0xFF92400E) : const Color(0xFF64748B),
                                     ),
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
-                        ),
-                      ],
+                        );
+                        if (isLargeText) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              validBox,
+                              const SizedBox(height: 8),
+                              attentionBox,
+                            ],
+                          );
+                        }
+                        return IntrinsicHeight(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(child: validBox),
+                              const SizedBox(width: 10),
+                              Expanded(child: attentionBox),
+                            ],
+                          ),
+                        );
+                      },
                     ),
                     const SizedBox(height: 16),
                     const Text(
@@ -997,12 +1068,7 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
         return StatefulBuilder(
           builder: (context, setSheetState) {
             return Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-              ),
+              padding: sheetBottomPadding(context, top: 20, extra: 20),
               child: SingleChildScrollView(
                 child: Form(
                   key: formKey,
@@ -1013,13 +1079,15 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
-                            'Tinjauan & Review Klinis Perawat',
-                            style: TextStyle(
-                              fontFamily: 'Nunito',
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF0F172A),
+                          const Expanded(
+                            child: Text(
+                              'Tinjauan & Review Klinis Perawat',
+                              style: TextStyle(
+                                fontFamily: 'Nunito',
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF0F172A),
+                              ),
                             ),
                           ),
                           IconButton(
@@ -1036,20 +1104,10 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                         style: TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF334155)),
                       ),
                       const SizedBox(height: 6),
-                      DropdownButtonFormField<String>(
-                        initialValue: validationStatus,
-                        items: const [
-                          DropdownMenuItem(value: 'VALIDATED', child: Text('Tervalidasi Sesuai (Tumbuh Baik)')),
-                          DropdownMenuItem(value: 'MONITORING', child: Text('Perlu Pemantauan Khusus')),
-                          DropdownMenuItem(value: 'NEEDS_ATTENTION', child: Text('Perlu Konsultasi Dokter Spesialis')),
-                        ],
-                        onChanged: (val) {
-                          if (val != null) setSheetState(() => validationStatus = val);
-                        },
-                        decoration: InputDecoration(
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        ),
+                      _buildClinicalStatusField(
+                        context,
+                        validationStatus,
+                        (val) => setSheetState(() => validationStatus = val),
                       ),
                       const SizedBox(height: 14),
 
@@ -1187,12 +1245,7 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
         return StatefulBuilder(
           builder: (context, setSheetState) {
             return Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-              ),
+              padding: sheetBottomPadding(context, top: 20, extra: 20),
               child: SingleChildScrollView(
                 child: Form(
                   key: formKey,
@@ -1203,13 +1256,15 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text(
-                            'Ubah Review Klinis Perawat',
-                            style: TextStyle(
-                              fontFamily: 'Nunito',
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF0F172A),
+                          const Expanded(
+                            child: Text(
+                              'Ubah Review Klinis Perawat',
+                              style: TextStyle(
+                                fontFamily: 'Nunito',
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF0F172A),
+                              ),
                             ),
                           ),
                           IconButton(
@@ -1226,20 +1281,10 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                         style: TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF334155)),
                       ),
                       const SizedBox(height: 6),
-                      DropdownButtonFormField<String>(
-                        initialValue: validationStatus,
-                        items: const [
-                          DropdownMenuItem(value: 'VALIDATED', child: Text('Tervalidasi Sesuai (Tumbuh Baik)')),
-                          DropdownMenuItem(value: 'MONITORING', child: Text('Perlu Pemantauan Khusus')),
-                          DropdownMenuItem(value: 'NEEDS_ATTENTION', child: Text('Perlu Konsultasi Dokter Spesialis')),
-                        ],
-                        onChanged: (val) {
-                          if (val != null) setSheetState(() => validationStatus = val);
-                        },
-                        decoration: InputDecoration(
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        ),
+                      _buildClinicalStatusField(
+                        context,
+                        validationStatus,
+                        (val) => setSheetState(() => validationStatus = val),
                       ),
                       const SizedBox(height: 14),
 
@@ -1440,11 +1485,13 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
         onRefresh: _loading ? null : _loadAnalytics,
         showBackButton: true,
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)))
-          : (_errorMessage != null
-              ? _buildErrorView()
-              : Column(
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)))
+            : (_errorMessage != null
+                ? _buildErrorView()
+                : Column(
                   children: [
                     if (_isSubmitting) ...[
                       const LinearProgressIndicator(
@@ -1491,6 +1538,7 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                     ),
                   ],
                 )),
+      ),
       bottomNavigationBar: (!_loading && _errorMessage == null && _data != null)
           ? _buildBottomActionBar()
           : null,
@@ -1591,34 +1639,41 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
             latestMeasurement: latestMeasurement,
             stuntingStatus: stuntingStatus,
             weightStatus: weightStatus,
+            birthWeightGrams: _parseIntVal(infant['birthWeight']),
           ),
           const SizedBox(height: 20),
 
           // 4. Kurva Pertumbuhan WHO Interaktif
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Kurva Pertumbuhan WHO',
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
+          SizedBox(
+            width: double.infinity,
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                const Text(
+                  'Kurva Pertumbuhan WHO',
+                  style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
                 ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE0F2FE),
-                  borderRadius: BorderRadius.circular(6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE0F2FE),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'Standar WHO (Z-Score)',
+                    style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF0369A1)),
+                  ),
                 ),
-                child: const Text(
-                  'Standar WHO (Z-Score)',
-                  style: TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF0369A1)),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 10),
           GrowthChart(
@@ -1626,50 +1681,64 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
             whoCurves: whoCurves,
             activeMetric: _activeMetric,
             onMetricChanged: (metric) => setState(() => _activeMetric = metric),
+            birthWeightGrams: _parseIntVal(infant['birthWeight']),
+            gestationalWeeks: _parseIntVal(gestationalWeeks),
           ),
           const SizedBox(height: 24),
 
           // 5. Riwayat Pengukuran Berkala
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Riwayat Pengukuran Berkala',
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
+          SizedBox(
+            width: double.infinity,
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                const Text(
+                  'Riwayat Pengukuran Berkala',
+                  style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
                 ),
-              ),
-              Text(
-                '${measurements.length} Catatan',
-                style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
-              ),
-            ],
+                Text(
+                  '${measurements.length} Catatan',
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 10),
           _buildMeasurementHistorySection(measurements, role, resolvedInfantId),
           const SizedBox(height: 24),
 
           // 6. Review & Validasi Tenaga Medis (Nurse Clinical Supervision)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Catatan & Tinjauan Tenaga Medis',
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
+          SizedBox(
+            width: double.infinity,
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                const Text(
+                  'Catatan & Tinjauan Tenaga Medis',
+                  style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
                 ),
-              ),
-              Text(
-                '${nurseReviews.length} Catatan',
-                style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
-              ),
-            ],
+                Text(
+                  '${nurseReviews.length} Catatan',
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 10),
           _buildNurseReviewsSection(nurseReviews, role, resolvedInfantId),
@@ -1885,6 +1954,7 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
     required Map<String, dynamic> latestMeasurement,
     required Map<String, dynamic> stuntingStatus,
     required Map<String, dynamic> weightStatus,
+    int? birthWeightGrams,
   }) {
     final stuntingLabel = (stuntingStatus['label'] as String?) ?? 'Belum Ada Data';
     final weightLabel = (weightStatus['label'] as String?) ?? 'Belum Ada Data';
@@ -1924,116 +1994,86 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
       weightBg = const Color(0xFFE0F2FE);
     }
 
+    final isLargeText = MediaQuery.textScalerOf(context).scale(14) > 18;
+    final num? latestWeightKg = weightKg is num ? weightKg : num.tryParse('${weightKg ?? ''}');
+    final int? latestWeightGrams = latestWeightKg != null ? (latestWeightKg * 1000).round() : null;
+    final int? weightDeltaGrams = (birthWeightGrams != null && latestWeightGrams != null)
+        ? (latestWeightGrams - birthWeightGrams)
+        : null;
+    final String? deltaLabel = weightDeltaGrams != null
+        ? '${weightDeltaGrams >= 0 ? '+' : ''}$weightDeltaGrams g vs BBL'
+        : null;
+
+    Widget buildStatusCard(String heading, String label, Color fg, Color bg, dynamic zVal) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              heading,
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontFamily: 'Nunito',
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                  color: fg,
+                ),
+              ),
+            ),
+            if (zVal != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Z-Score: $zVal SD',
+                style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+
     return Column(
       children: [
         // Kartu Kategori Status Pertumbuhan
-        IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Status Tinggi/Panjang',
-                        style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 6),
-                      Expanded(
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: stuntingBg,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              stuntingLabel,
-                              style: TextStyle(
-                                fontFamily: 'Nunito',
-                                fontWeight: FontWeight.w800,
-                                fontSize: 13,
-                                color: stuntingColor,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (zLength != null) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          'Z-Score: $zLength SD',
-                          style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
-                        ),
-                      ],
-                    ],
-                  ),
+        if (isLargeText) ...[
+          buildStatusCard('Status Tinggi/Panjang', stuntingLabel, stuntingColor, stuntingBg, zLength),
+          const SizedBox(height: 10),
+          buildStatusCard('Status Berat Badan', weightLabel, weightColor, weightBg, zWeight),
+        ] else
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: buildStatusCard('Status Tinggi/Panjang', stuntingLabel, stuntingColor, stuntingBg, zLength),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Status Berat Badan',
-                        style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 6),
-                      Expanded(
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: weightBg,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              weightLabel,
-                              style: TextStyle(
-                                fontFamily: 'Nunito',
-                                fontWeight: FontWeight.w800,
-                                fontSize: 13,
-                                color: weightColor,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (zWeight != null) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          'Z-Score: $zWeight SD',
-                          style: const TextStyle(fontFamily: 'Inter', fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
-                        ),
-                      ],
-                    ],
-                  ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: buildStatusCard('Status Berat Badan', weightLabel, weightColor, weightBg, zWeight),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
         const SizedBox(height: 12),
 
-        // Metrik Terakhir Terukur
+        // Grid 2x2 Metrik Utama: Berat Saat Lahir, Berat Terakhir (+delta), Panjang Terakhir, Lingkar Kepala
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -2041,28 +2081,57 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: const Color(0xFFE2E8F0)),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
+          child: Column(
             children: [
-              _buildMetricStatColumn(
-                label: 'Berat Terakhir',
-                value: WeightFormatter.formatKgToGrams(weightKg),
-                icon: Icons.scale_rounded,
-                color: const Color(0xFF10B981),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _buildMetricStatColumn(
+                      label: 'Berat Saat Lahir',
+                      value: birthWeightGrams != null ? WeightFormatter.formatGrams(birthWeightGrams) : '-',
+                      icon: Icons.child_friendly_rounded,
+                      color: const Color(0xFF0284C7),
+                    ),
+                  ),
+                  Container(width: 1, height: 48, color: const Color(0xFFF1F5F9)),
+                  Expanded(
+                    child: _buildMetricStatColumn(
+                      label: 'Berat Terakhir',
+                      value: WeightFormatter.formatKgToGrams(weightKg),
+                      deltaText: deltaLabel,
+                      isDeltaPositive: (weightDeltaGrams ?? 0) >= 0,
+                      icon: Icons.scale_rounded,
+                      color: const Color(0xFF10B981),
+                    ),
+                  ),
+                ],
               ),
-              Container(width: 1, height: 36, color: const Color(0xFFF1F5F9)),
-              _buildMetricStatColumn(
-                label: 'Panjang Terakhir',
-                value: lengthCm != null ? '$lengthCm cm' : '-',
-                icon: Icons.straighten_rounded,
-                color: const Color(0xFF0EA5E9),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Divider(height: 1, color: Color(0xFFF1F5F9)),
               ),
-              Container(width: 1, height: 36, color: const Color(0xFFF1F5F9)),
-              _buildMetricStatColumn(
-                label: 'Lingkar Kepala',
-                value: headCm != null ? '$headCm cm' : '-',
-                icon: Icons.face_rounded,
-                color: const Color(0xFF8B5CF6),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _buildMetricStatColumn(
+                      label: 'Panjang Terakhir',
+                      value: lengthCm != null ? '$lengthCm cm' : '-',
+                      icon: Icons.straighten_rounded,
+                      color: const Color(0xFF0EA5E9),
+                    ),
+                  ),
+                  Container(width: 1, height: 48, color: const Color(0xFFF1F5F9)),
+                  Expanded(
+                    child: _buildMetricStatColumn(
+                      label: 'Lingkar Kepala',
+                      value: headCm != null ? '$headCm cm' : '-',
+                      icon: Icons.face_rounded,
+                      color: const Color(0xFF8B5CF6),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -2086,23 +2155,55 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
     required String value,
     required IconData icon,
     required Color color,
+    String? deltaText,
+    bool isDeltaPositive = true,
   }) {
-    return Column(
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: color),
-            const SizedBox(width: 4),
-            Text(label, style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFF64748B))),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFF64748B)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontFamily: 'Nunito', fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+          ),
+          if (deltaText != null) ...[
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: isDeltaPositive ? const Color(0xFFD1FAE5) : const Color(0xFFFEF3C7),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                deltaText,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: isDeltaPositive ? const Color(0xFF065F46) : const Color(0xFF92400E),
+                ),
+              ),
+            ),
           ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(fontFamily: 'Nunito', fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -2198,31 +2299,35 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                 color: Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
               ),
-              child: Column(
-                children: [
-                  Center(
-                    child: Container(
-                      margin: const EdgeInsets.only(top: 10, bottom: 8),
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFCBD5E1),
-                        borderRadius: BorderRadius.circular(2),
+              child: SafeArea(
+                top: false,
+                child: Column(
+                  children: [
+                    Center(
+                      child: Container(
+                        margin: const EdgeInsets.only(top: 10, bottom: 8),
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFCBD5E1),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Riwayat Lengkap (${allMeasurements.length})',
-                          style: const TextStyle(
-                            fontFamily: 'Nunito',
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Riwayat Lengkap (${allMeasurements.length})',
+                            style: const TextStyle(
+                              fontFamily: 'Nunito',
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
                           ),
                         ),
                         IconButton(
@@ -2293,7 +2398,7 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                             ),
                           )
                         : ListView.separated(
-                            padding: const EdgeInsets.all(16),
+                            padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery.paddingOf(sheetCtx).bottom + 24),
                             itemCount: allMeasurements.length,
                             separatorBuilder: (_, __) => const SizedBox(height: 10),
                             itemBuilder: (_, i) {
@@ -2313,6 +2418,7 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                           ),
                   ),
                 ],
+                ),
               ),
             );
           },
@@ -2357,31 +2463,41 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
             children: [
               // Header: Tanggal, Usia, dan Aksi Role
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.calendar_month_rounded, size: 16, color: Color(0xFF10B981)),
-                      const SizedBox(width: 6),
-                      Text(
-                        date,
-                        style: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w800, fontSize: 14, color: Color(0xFF0F172A)),
-                      ),
-                      if (ageFormatted != null) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF1F5F9),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            ageFormatted,
-                            style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
-                          ),
+                  Expanded(
+                    child: Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.calendar_month_rounded, size: 16, color: Color(0xFF10B981)),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                date,
+                                style: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w800, fontSize: 14, color: Color(0xFF0F172A)),
+                              ),
+                            ),
+                          ],
                         ),
+                        if (ageFormatted != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              ageFormatted,
+                              style: const TextStyle(fontFamily: 'Inter', fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+                            ),
+                          ),
                       ],
-                    ],
+                    ),
                   ),
                   if (role == 'mother')
                     Row(
@@ -2443,70 +2559,99 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
               ),
               const SizedBox(height: 10),
 
-              // 3-Column Balanced Grid: Berat, Panjang, Lingkar Kepala
+              // 3-Column Balanced Grid: Berat, Panjang, Lingkar Kepala (wraps on large font)
               Container(
+                width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF8FAFC),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: const Color(0xFFF1F5F9)),
                 ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                child: MediaQuery.textScalerOf(context).scale(13) > 17
+                    ? Wrap(
+                        spacing: 16,
+                        runSpacing: 8,
                         children: [
-                          const Text(
-                            'Berat',
-                            style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFF64748B)),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Berat', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFF64748B))),
+                              Text(WeightFormatter.formatKgToGrams(weight), style: const TextStyle(fontFamily: 'Nunito', fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                            ],
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            WeightFormatter.formatKgToGrams(weight),
-                            style: const TextStyle(fontFamily: 'Nunito', fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Panjang', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFF64748B))),
+                              Text(length != null ? '$length cm' : '-', style: const TextStyle(fontFamily: 'Nunito', fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                            ],
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Lingkar Kepala', style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFF64748B))),
+                              Text(head != null ? '$head cm' : '-', style: const TextStyle(fontFamily: 'Nunito', fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                            ],
+                          ),
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Berat',
+                                  style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFF64748B)),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  WeightFormatter.formatKgToGrams(weight),
+                                  style: const TextStyle(fontFamily: 'Nunito', fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(width: 1, height: 28, color: const Color(0xFFE2E8F0)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Panjang',
+                                  style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFF64748B)),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  length != null ? '$length cm' : '-',
+                                  style: const TextStyle(fontFamily: 'Nunito', fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(width: 1, height: 28, color: const Color(0xFFE2E8F0)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Lingkar Kepala',
+                                  style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFF64748B)),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  head != null ? '$head cm' : '-',
+                                  style: const TextStyle(fontFamily: 'Nunito', fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                    Container(width: 1, height: 28, color: const Color(0xFFE2E8F0)),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Panjang',
-                            style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFF64748B)),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            length != null ? '$length cm' : '-',
-                            style: const TextStyle(fontFamily: 'Nunito', fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(width: 1, height: 28, color: const Color(0xFFE2E8F0)),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Lingkar K.',
-                            style: TextStyle(fontFamily: 'Inter', fontSize: 11, color: Color(0xFF64748B)),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            head != null ? '$head cm' : '-',
-                            style: const TextStyle(fontFamily: 'Nunito', fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
               ),
 
               // Status Review Perawat per-item
@@ -2702,33 +2847,37 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                 color: Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
               ),
-              child: Column(
-                children: [
-                  Center(
-                    child: Container(
-                      margin: const EdgeInsets.only(top: 10, bottom: 8),
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFCBD5E1),
-                        borderRadius: BorderRadius.circular(2),
+              child: SafeArea(
+                top: false,
+                child: Column(
+                  children: [
+                    Center(
+                      child: Container(
+                        margin: const EdgeInsets.only(top: 10, bottom: 8),
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFCBD5E1),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Semua Catatan Tinjauan (${allReviews.length})',
-                          style: const TextStyle(
-                            fontFamily: 'Nunito',
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Semua Catatan Tinjauan (${allReviews.length})',
+                              style: const TextStyle(
+                                fontFamily: 'Nunito',
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF0F172A),
+                              ),
+                            ),
                           ),
-                        ),
                         IconButton(
                           icon: const Icon(Icons.close_rounded, color: Color(0xFF64748B)),
                           onPressed: () => Navigator.pop(sheetCtx),
@@ -2797,7 +2946,7 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                             ),
                           )
                         : ListView.separated(
-                            padding: const EdgeInsets.all(16),
+                            padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery.paddingOf(sheetCtx).bottom + 24),
                             itemCount: allReviews.length,
                             separatorBuilder: (_, __) => const SizedBox(height: 12),
                             itemBuilder: (_, i) {
@@ -2817,6 +2966,7 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                           ),
                   ),
                 ],
+                ),
               ),
             );
           },
@@ -2910,7 +3060,7 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                   children: [
           // Row 1: Header (Avatar + Nurse Details + Action Icons)
           Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Avatar Circle
               Container(
@@ -2947,11 +3097,12 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                         fontSize: 14,
                         color: Color(0xFF0F172A),
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 2),
-                    Row(
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 2,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         const Text(
                           'Perawat Klinis',
@@ -2963,18 +3114,23 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
                           ),
                         ),
                         const Text(
-                          ' • ',
+                          '•',
                           style: TextStyle(color: Color(0xFFCBD5E1), fontSize: 11),
                         ),
-                        const Icon(Icons.calendar_today_rounded, size: 10, color: Color(0xFF94A3B8)),
-                        const SizedBox(width: 3),
-                        Text(
-                          date,
-                          style: const TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 11,
-                            color: Color(0xFF64748B),
-                          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.calendar_today_rounded, size: 10, color: Color(0xFF94A3B8)),
+                            const SizedBox(width: 3),
+                            Text(
+                              date,
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 11,
+                                color: Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -3150,73 +3306,99 @@ class _InfantAnalyticsDashboardPageState extends State<InfantAnalyticsDashboardP
 
     if (role == 'mother') {
       return Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         decoration: const BoxDecoration(
           color: Colors.white,
           border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
         ),
-        child: SizedBox(
-          width: double.infinity,
-          height: 48,
-          child: ElevatedButton.icon(
-            onPressed: _isSubmitting ? null : () => _showAddMeasurementBottomSheet(resolvedInfantId),
-            icon: const Icon(Icons.add_rounded),
-            label: const Text(
-              'Catat Pengukuran Baru',
-              style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF10B981),
-              foregroundColor: Colors.white,
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 48),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _isSubmitting ? null : () => _showAddMeasurementBottomSheet(resolvedInfantId),
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text(
+                    'Catat Pengukuran Baru',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
             ),
           ),
         ),
       );
     } else if (role == 'nurse') {
       return Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         decoration: const BoxDecoration(
           color: Colors.white,
           border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
         ),
-        child: SizedBox(
-          width: double.infinity,
-          height: 48,
-          child: ElevatedButton.icon(
-            onPressed: _isSubmitting ? null : () => _showAddNurseReviewBottomSheet(resolvedInfantId),
-            icon: const Icon(Icons.rate_review_rounded),
-            label: const Text(
-              'Beri Review Klinis Perawat',
-              style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF0EA5E9),
-              foregroundColor: Colors.white,
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 48),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _isSubmitting ? null : () => _showAddNurseReviewBottomSheet(resolvedInfantId),
+                  icon: const Icon(Icons.rate_review_rounded),
+                  label: const Text(
+                    'Beri Tinjauan Klinis Perawat',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0EA5E9),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
             ),
           ),
         ),
       );
     } else if (role == 'father') {
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: const BoxDecoration(
           color: Color(0xFFF1F5F9),
           border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: const [
-            Icon(Icons.visibility_outlined, size: 16, color: Color(0xFF64748B)),
-            SizedBox(width: 8),
-            Text(
-              'Mode Pemantau (Ayah) - Hak Akses Baca',
-              style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+        child: const SafeArea(
+          top: false,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.visibility_outlined, size: 16, color: Color(0xFF64748B)),
+                SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'Mode Pemantau (Ayah) - Hak Akses Baca',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontFamily: 'Inter', fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       );
     }

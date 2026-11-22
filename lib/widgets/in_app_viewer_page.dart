@@ -4,7 +4,8 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
-import 'package:url_launcher/url_launcher.dart'; // [TAMBAHAN] Untuk buka WA
+import 'package:url_launcher/url_launcher.dart';
+import 'common.dart';
 
 class InAppViewerPage extends StatefulWidget {
   final String title;
@@ -15,6 +16,8 @@ class InAppViewerPage extends StatefulWidget {
 }
 
 class _InAppViewerPageState extends State<InAppViewerPage> {
+  final GlobalKey<_PdfOrWebState> _webKey = GlobalKey<_PdfOrWebState>();
+
   // Regex untuk deteksi file video langsung
   bool get _isVideo =>
       RegExp(r'\.(mp4|webm|m3u8)(\?.*)?$', caseSensitive: false).hasMatch(widget.url);
@@ -25,16 +28,28 @@ class _InAppViewerPageState extends State<InAppViewerPage> {
 
   @override
   Widget build(BuildContext context) {
-    final title = widget.title.isEmpty ? 'Viewer' : widget.title;
+    final title = widget.title.isEmpty ? 'Pratinjau' : widget.title;
     return Scaffold(
-      appBar: AppBar(
-        title: Text(title),
-        // [OPSIONAL] Tombol back manual jika WebView punya history navigasi sendiri
-        // actions: [IconButton(icon: Icon(Icons.refresh), onPressed: () {})],
+      backgroundColor: Colors.white,
+      appBar: enicareAppBar(
+        context,
+        title: title,
+        actions: _isVideo
+            ? null
+            : [
+                IconButton(
+                  icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
+                  tooltip: 'Muat Ulang',
+                  onPressed: () => _webKey.currentState?.reloadPage(),
+                ),
+              ],
       ),
-      body: _isVideo
-          ? _VideoPlayer(url: widget.url)
-          : _PdfOrWeb(url: widget.url, isPdf: _isPdf),
+      body: SafeArea(
+        top: false,
+        child: _isVideo
+            ? _VideoPlayer(url: widget.url)
+            : _PdfOrWeb(key: _webKey, url: widget.url, isPdf: _isPdf),
+      ),
     );
   }
 }
@@ -42,7 +57,7 @@ class _InAppViewerPageState extends State<InAppViewerPage> {
 class _PdfOrWeb extends StatefulWidget {
   final String url;
   final bool isPdf;
-  const _PdfOrWeb({required this.url, required this.isPdf});
+  const _PdfOrWeb({super.key, required this.url, required this.isPdf});
 
   @override
   State<_PdfOrWeb> createState() => _PdfOrWebState();
@@ -53,6 +68,14 @@ class _PdfOrWebState extends State<_PdfOrWeb> {
   bool _loading = true;
   String? _errorMessage;
   bool _isCustomWidgetShown = false;
+
+  void reloadPage() {
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+    });
+    _c.reload();
+  }
 
   @override
   void initState() {
@@ -230,7 +253,16 @@ class _PdfOrWebState extends State<_PdfOrWeb> {
       children: [
         WebViewWidget(controller: _c),
         if (_loading)
-          const Center(child: CircularProgressIndicator()),
+          const Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: LinearProgressIndicator(
+              minHeight: 3,
+              color: Color(0xFF10B981),
+              backgroundColor: Color(0xFFD1FAE5),
+            ),
+          ),
       ],
     );
   }

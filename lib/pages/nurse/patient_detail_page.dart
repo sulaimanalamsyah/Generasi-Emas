@@ -3,7 +3,10 @@ import 'package:material_ui/material_ui.dart';
 import '../../services/api_client.dart';
 import '../../routes.dart';
 import '../../core/age_calculator.dart';
+import '../../core/date_formatter.dart';
+import '../../core/storage.dart';
 import '../../core/weight_formatter.dart';
+import '../../widgets/common.dart';
 
 class PatientDetailPage extends StatefulWidget {
   const PatientDetailPage({super.key});
@@ -83,7 +86,9 @@ class _PatientDetailPageState extends State<PatientDetailPage>
       });
 
     _argsInited = true;
-    _loadDetail();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadDetail();
+    });
   }
 
   @override
@@ -93,6 +98,8 @@ class _PatientDetailPageState extends State<PatientDetailPage>
   }
 
   /* ======================== LOADERS ======================== */
+
+  String get _detailCacheKey => 'nurse_patient_detail_v1_$patientId';
 
   Future<void> _loadDetail() async {
     if (patientId.isEmpty) {
@@ -110,19 +117,36 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     try {
       final d = await _api.nurseGetPatientDetail(patientId);
       _detail = Map<String, dynamic>.from(d);
-    } catch (_) {
-      try {
-        final list = await _api.nurseGetPatients();
-        final found = list
-            .whereType<Map>()
-            .map((m) => m.cast<String, dynamic>())
-            .firstWhere(
-              (m) => ((m['id'] ?? m['userId'] ?? '').toString() == patientId),
-          orElse: () => <String, dynamic>{},
-        );
-        _detail = found;
-      } catch (e) {
-        if (e is ApiError && e.status == 0) {
+      await Prefs.setCachedJson(_detailCacheKey, _detail!);
+    } catch (e) {
+      var loadedFallback = false;
+      if (e is! ApiError || e.status != 0) {
+        try {
+          final list = await _api.nurseGetPatients();
+          final found = list
+              .whereType<Map>()
+              .map((m) => m.cast<String, dynamic>())
+              .firstWhere(
+                (m) => ((m['id'] ?? m['userId'] ?? '').toString() == patientId),
+            orElse: () => <String, dynamic>{},
+          );
+          if (found.isNotEmpty) {
+            _detail = found;
+            loadedFallback = true;
+          }
+        } catch (_) {}
+      }
+      if (!loadedFallback) {
+        final cached = await Prefs.getCachedJson(_detailCacheKey);
+        if (cached is Map) {
+          _detail = Map<String, dynamic>.from(cached);
+          if (mounted) {
+            showAppSnackBar(
+              context,
+              message: 'Menampilkan detail pasien tersimpan (mode luring).',
+            );
+          }
+        } else if (e is ApiError && e.status == 0) {
           _errorDetail = 'Tidak ada koneksi internet.';
         } else {
           _errorDetail = '$e';
@@ -218,8 +242,8 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     setState(() => _isSyncingScores = true);
 
     try {
-      final res = await _api.nurseSyncScores().timeout(
-        const Duration(seconds: 25),
+      final res = await _api.nurseSyncScores(patientId: patientId).timeout(
+        const Duration(seconds: 35),
         onTimeout: () {
           return {'timeout': true, 'message': 'Proses sinkronisasi berjalan di latar belakang.'};
         },
@@ -228,18 +252,14 @@ class _PatientDetailPageState extends State<PatientDetailPage>
       if (!mounted) return;
 
       if (res['timeout'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Sinkronisasi sedang diproses di server Google Sheets..."),
-            backgroundColor: Color(0xFF0EA5E9),
-          ),
+        showAppSnackBar(
+          context,
+          message: "Sinkronisasi sedang diproses di server Google Sheets...",
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Sinkronisasi data Google Sheets berhasil!"),
-            backgroundColor: Color(0xFF10B981),
-          ),
+        showAppSnackBar(
+          context,
+          message: "Sinkronisasi data Google Sheets berhasil!",
         );
       }
       await _loadDetail();
@@ -249,12 +269,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
       if (e is ApiError && e.status == 0) {
         msg = "Gagal koneksi. Pastikan internet lancar.";
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Gagal Sync: $msg"),
-          backgroundColor: const Color(0xFFEF4444),
-        ),
-      );
+      showAppSnackBar(context, message: "Gagal Sync: $msg", isError: true);
     } finally {
       if (mounted) setState(() => _isSyncingScores = false);
     }
@@ -262,36 +277,13 @@ class _PatientDetailPageState extends State<PatientDetailPage>
 
   Future<void> _unassign() async {
     if (patientId.isEmpty) return;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
-          'Lepas Pasien?',
-          style: TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
-        ),
-        content: const Text(
-          'Pasien ini akan dihapus dari daftar binaan Anda.',
-          style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF475569)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Batal', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFEF4444),
-              foregroundColor: Colors.white,
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Lepas', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
-          ),
-        ],
-      ),
-    ) ?? false;
+    final ok = await showAppConfirmDialog(
+      context,
+      title: 'Lepas Pasien?',
+      message: 'Pasien ini akan dihapus dari daftar binaan Anda.',
+      confirmLabel: 'Lepas',
+      isDestructive: true,
+    );
 
     if (!ok) return;
 
@@ -306,20 +298,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
         msg = "Tidak ada koneksi internet. Gagal melepas pasien.";
       }
 
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text("Gagal", style: TextStyle(fontFamily: 'Nunito', color: Color(0xFFEF4444))),
-          content: Text(msg, style: const TextStyle(fontFamily: 'Inter')),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("OK", style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
-            ),
-          ],
-        ),
-      );
+      showAppInfoDialog(context, title: "Gagal", message: msg, isError: true);
     }
   }
 
@@ -416,19 +395,23 @@ class _PatientDetailPageState extends State<PatientDetailPage>
 
   Widget _buildMetricTile(IconData icon, String value, String label, Color color) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(icon, size: 14, color: color),
             const SizedBox(width: 4),
-            Text(
-              value,
-              style: const TextStyle(
-                fontFamily: 'Nunito',
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF0F172A),
+            Flexible(
+              child: Text(
+                value,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF0F172A),
+                ),
               ),
             ),
           ],
@@ -436,6 +419,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
         const SizedBox(height: 2),
         Text(
           label,
+          textAlign: TextAlign.center,
           style: const TextStyle(
             fontFamily: 'Inter',
             fontSize: 11,
@@ -660,23 +644,27 @@ class _PatientDetailPageState extends State<PatientDetailPage>
             ),
           ],
           const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            height: 38,
-            child: OutlinedButton.icon(
-              onPressed: () {
-                final targetId = infant['id']?.toString() ?? patientId;
-                Navigator.pushNamed(context, Routes.infantAnalytics, arguments: {'infantId': targetId});
-              },
-              icon: const Icon(Icons.insights_rounded, size: 16, color: Color(0xFF10B981)),
-              label: const Text(
-                'Buka Dasbor Analitik & Grafik WHO',
-                style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 12, color: Color(0xFF10B981)),
-              ),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFFA7F3D0)),
-                backgroundColor: const Color(0xFFF0FDF4),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  final targetId = infant['id']?.toString() ?? patientId;
+                  Navigator.pushNamed(context, Routes.infantAnalytics, arguments: {'infantId': targetId});
+                },
+                icon: const Icon(Icons.insights_rounded, size: 18, color: Color(0xFF10B981)),
+                label: const Text(
+                  'Buka Dasbor Analitik & Grafik WHO',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF10B981)),
+                ),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  side: const BorderSide(color: Color(0xFFA7F3D0)),
+                  backgroundColor: const Color(0xFFF0FDF4),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
               ),
             ),
           ),
@@ -698,22 +686,9 @@ class _PatientDetailPageState extends State<PatientDetailPage>
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'Detail Pasien',
-          style: TextStyle(
-            fontFamily: 'Nunito',
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF0F172A),
-          ),
-        ),
+      appBar: enicareAppBar(
+        context,
+        title: 'Detail Pasien',
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
@@ -739,62 +714,71 @@ class _PatientDetailPageState extends State<PatientDetailPage>
         ],
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            if (!_loadingDetail && _errorDetail == null && _detail != null)
-              _buildPatientHeaderCard(),
-
-            // TabBar Container
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: TabBar(
-                controller: _tabCtrl,
-                isScrollable: false,
-                indicatorColor: const Color(0xFF10B981),
-                labelColor: const Color(0xFF10B981),
-                unselectedLabelColor: const Color(0xFF64748B),
-                labelStyle: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 13),
-                unselectedLabelStyle: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w500, fontSize: 13),
-                onTap: (i) {
-                  if (_errorDetail != null || patientId.isEmpty) return;
-                  if (i == 0) _loadLogbook(force: true);
-                  if (i == 1) _loadJournal(force: true);
-                },
-                tabs: const [
-                  Tab(text: 'Logbook'),
-                  Tab(text: 'Jurnal'),
-                  Tab(text: 'Evaluasi'),
-                  Tab(text: 'Data Ibu'),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            Expanded(
-              child: _loadingDetail
-                  ? const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)))
-                  : (_errorDetail != null
-                      ? _ErrView(
-                          message: _errorDetail!,
-                          onRetry: _loadDetail,
-                        )
-                      : TabBarView(
+        top: false,
+        child: _loadingDetail
+            ? const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)))
+            : (_errorDetail != null
+                ? _ErrView(
+                    message: _errorDetail!,
+                    onRetry: _loadDetail,
+                  )
+                : Builder(
+                    builder: (innerCtx) {
+                      final scaledFont = MediaQuery.textScalerOf(innerCtx).scale(13);
+                      final tabHeight = (scaledFont * 2.4 + 36).clamp(62.0, 112.0);
+                      return NestedScrollView(
+                        headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                          if (_detail != null)
+                            SliverToBoxAdapter(child: _buildPatientHeaderCard()),
+                          SliverPersistentHeader(
+                            pinned: true,
+                            delegate: _TabBarHeaderDelegate(
+                              height: tabHeight,
+                              child: Container(
+                                margin: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                ),
+                                child: TabBar(
+                                  controller: _tabCtrl,
+                                  isScrollable: true,
+                                  tabAlignment: TabAlignment.start,
+                                  indicatorColor: const Color(0xFF10B981),
+                                  labelColor: const Color(0xFF10B981),
+                                  unselectedLabelColor: const Color(0xFF64748B),
+                                  labelStyle: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 13),
+                                  unselectedLabelStyle: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w500, fontSize: 13),
+                                  onTap: (i) {
+                                    if (_errorDetail != null || patientId.isEmpty) return;
+                                    if (i == 0) _loadLogbook(force: true);
+                                    if (i == 1) _loadJournal(force: true);
+                                  },
+                                  tabs: const [
+                                    Tab(text: 'Logbook'),
+                                    Tab(text: 'Jurnal'),
+                                    Tab(text: 'Evaluasi'),
+                                    Tab(text: 'Data Ibu'),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                        body: TabBarView(
                           controller: _tabCtrl,
+                          physics: const NeverScrollableScrollPhysics(),
                           children: [
                             _buildLogbookTab(),
                             _buildJournalTab(),
                             _buildScoreTab(),
                             _buildProfileTab(),
                           ],
-                        )),
-            ),
-          ],
-        ),
+                        ),
+                      );
+                    },
+                  )),
       ),
     );
   }
@@ -802,10 +786,6 @@ class _PatientDetailPageState extends State<PatientDetailPage>
   /* ======================== TABS ======================== */
 
   Widget _buildLogbookTab() {
-    if (_logbooks == null && !_loadingLogbook && _errorDetail == null && patientId.isNotEmpty) {
-      _loadLogbook();
-    }
-
     if (_loadingLogbook) {
       return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
     }
@@ -888,10 +868,13 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            dateStr,
-                            style: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 15, color: Color(0xFF0F172A)),
+                          Expanded(
+                            child: Text(
+                              dateStr,
+                              style: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 15, color: Color(0xFF0F172A)),
+                            ),
                           ),
+                          const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
@@ -1058,14 +1041,30 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                   ),
                 ),
                 const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(child: _buildMetricTile(Icons.calendar_today_rounded, '$completedCount / 14', 'Hari Terisi', const Color(0xFF10B981))),
-                    Container(width: 1, height: 28, color: const Color(0xFFE2E8F0)),
-                    Expanded(child: _buildMetricTile(Icons.schedule_rounded, '$totalDuration mnt', 'Total Durasi', const Color(0xFF0EA5E9))),
-                    Container(width: 1, height: 28, color: const Color(0xFFE2E8F0)),
-                    Expanded(child: _buildMetricTile(Icons.check_circle_outline_rounded, '$targetMetCount Hari', 'Target CO', const Color(0xFFF59E0B))),
-                  ],
+                Builder(
+                  builder: (mCtx) {
+                    final isLargeText = MediaQuery.textScalerOf(mCtx).scale(14) > 18;
+                    if (isLargeText) {
+                      return Column(
+                        children: [
+                          _buildMetricTile(Icons.calendar_today_rounded, '$completedCount / 14', 'Hari Terisi', const Color(0xFF10B981)),
+                          const Divider(height: 16, color: Color(0xFFE2E8F0)),
+                          _buildMetricTile(Icons.schedule_rounded, '$totalDuration mnt', 'Total Durasi', const Color(0xFF0EA5E9)),
+                          const Divider(height: 16, color: Color(0xFFE2E8F0)),
+                          _buildMetricTile(Icons.check_circle_outline_rounded, '$targetMetCount Hari', 'Target CO', const Color(0xFFF59E0B)),
+                        ],
+                      );
+                    }
+                    return Row(
+                      children: [
+                        Expanded(child: _buildMetricTile(Icons.calendar_today_rounded, '$completedCount / 14', 'Hari Terisi', const Color(0xFF10B981))),
+                        Container(width: 1, height: 28, color: const Color(0xFFE2E8F0)),
+                        Expanded(child: _buildMetricTile(Icons.schedule_rounded, '$totalDuration mnt', 'Total Durasi', const Color(0xFF0EA5E9))),
+                        Container(width: 1, height: 28, color: const Color(0xFFE2E8F0)),
+                        Expanded(child: _buildMetricTile(Icons.check_circle_outline_rounded, '$targetMetCount Hari', 'Target CO', const Color(0xFFF59E0B))),
+                      ],
+                    );
+                  },
                 ),
               ],
             ),
@@ -1088,43 +1087,50 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                   style: TextStyle(fontFamily: 'Nunito', fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
                 ),
                 const SizedBox(height: 10),
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 7,
-                    crossAxisSpacing: 6,
-                    mainAxisSpacing: 6,
-                    childAspectRatio: 1.15,
-                  ),
-                  itemCount: 14,
-                  itemBuilder: (_, idx) {
-                    final dIdx = idx + 1;
-                    final isFilled = _entriesByDayIndex.containsKey(dIdx);
-                    return Container(
-                      decoration: BoxDecoration(
-                        color: isFilled ? const Color(0xFF10B981) : const Color(0xFFFEE2E2),
-                        borderRadius: BorderRadius.circular(8),
+                Builder(
+                  builder: (gridCtx) {
+                    final fontFactor = MediaQuery.textScalerOf(gridCtx).scale(11) / 11.0;
+                    final crossAxisCount = fontFactor > 1.55 ? 5 : 7;
+                    return GridView.builder(
+                      primary: false,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: crossAxisCount,
+                        crossAxisSpacing: 6,
+                        mainAxisSpacing: 6,
+                        childAspectRatio: fontFactor > 1.55 ? 1.0 : 1.15,
                       ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            'H$dIdx',
-                            style: TextStyle(
-                              fontFamily: 'Inter',
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: isFilled ? Colors.white : const Color(0xFF991B1B),
-                            ),
+                      itemCount: 14,
+                      itemBuilder: (_, idx) {
+                        final dIdx = idx + 1;
+                        final isFilled = _entriesByDayIndex.containsKey(dIdx);
+                        return Container(
+                          decoration: BoxDecoration(
+                            color: isFilled ? const Color(0xFF10B981) : const Color(0xFFFEE2E2),
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                          Icon(
-                            isFilled ? Icons.check_rounded : Icons.close_rounded,
-                            size: 11,
-                            color: isFilled ? Colors.white : const Color(0xFF991B1B),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                'H$dIdx',
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: isFilled ? Colors.white : const Color(0xFF991B1B),
+                                ),
+                              ),
+                              Icon(
+                                isFilled ? Icons.check_rounded : Icons.close_rounded,
+                                size: 11,
+                                color: isFilled ? Colors.white : const Color(0xFF991B1B),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        );
+                      },
                     );
                   },
                 ),
@@ -1134,14 +1140,17 @@ class _PatientDetailPageState extends State<PatientDetailPage>
           const SizedBox(height: 10),
 
           // 3. Status Filter Bar
-          Row(
-            children: [
-              _buildFilterChip('Semua (14)', 'ALL'),
-              const SizedBox(width: 8),
-              _buildFilterChip('Sudah Diisi ($completedCount)', 'FILLED'),
-              const SizedBox(width: 8),
-              _buildFilterChip('Belum Diisi ($unfilledCount)', 'UNFILLED'),
-            ],
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildFilterChip('Semua (14)', 'ALL'),
+                const SizedBox(width: 8),
+                _buildFilterChip('Sudah Diisi ($completedCount)', 'FILLED'),
+                const SizedBox(width: 8),
+                _buildFilterChip('Belum Diisi ($unfilledCount)', 'UNFILLED'),
+              ],
+            ),
           ),
           const SizedBox(height: 12),
 
@@ -1205,15 +1214,18 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              'Hari ke-$dayIndex',
-                              style: const TextStyle(
-                                fontFamily: 'Nunito',
-                                fontWeight: FontWeight.w800,
-                                fontSize: 16,
-                                color: Color(0xFF0F172A),
+                            Expanded(
+                              child: Text(
+                                'Hari ke-$dayIndex',
+                                style: const TextStyle(
+                                  fontFamily: 'Nunito',
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 16,
+                                  color: Color(0xFF0F172A),
+                                ),
                               ),
                             ),
+                            const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                               decoration: BoxDecoration(
@@ -1356,13 +1368,15 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                     children: [
                       const Icon(Icons.history_toggle_off_rounded, size: 18, color: Color(0xFF64748B)),
                       const SizedBox(width: 8),
-                      Text(
-                        'Catatan di Luar Jadwal I-FINC (${_orphanEntries.length})',
-                        style: const TextStyle(
-                          fontFamily: 'Nunito',
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
-                          color: Color(0xFF475569),
+                      Expanded(
+                        child: Text(
+                          'Catatan di Luar Jadwal I-FINC (${_orphanEntries.length})',
+                          style: const TextStyle(
+                            fontFamily: 'Nunito',
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                            color: Color(0xFF475569),
+                          ),
                         ),
                       ),
                     ],
@@ -1396,10 +1410,13 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(
-                                dateStr,
-                                style: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF0F172A)),
+                              Expanded(
+                                child: Text(
+                                  dateStr,
+                                  style: const TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF0F172A)),
+                                ),
                               ),
+                              const SizedBox(width: 8),
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
@@ -1476,11 +1493,12 @@ class _PatientDetailPageState extends State<PatientDetailPage>
 
   Widget _buildFilterChip(String label, String value) {
     final isSelected = _selectedLogbookFilter == value;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _selectedLogbookFilter = value),
+    return GestureDetector(
+      onTap: () => setState(() => _selectedLogbookFilter = value),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 40),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             color: isSelected ? const Color(0xFF10B981) : Colors.white,
             borderRadius: BorderRadius.circular(10),
@@ -1491,7 +1509,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
             label,
             style: TextStyle(
               fontFamily: 'Inter',
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: FontWeight.w700,
               color: isSelected ? Colors.white : const Color(0xFF64748B),
             ),
@@ -1502,10 +1520,6 @@ class _PatientDetailPageState extends State<PatientDetailPage>
   }
 
   Widget _buildJournalTab() {
-    if (_journals == null && !_loadingJournal && _errorDetail == null && patientId.isNotEmpty) {
-      _loadJournal();
-    }
-
     if (_loadingJournal) {
       return const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)));
     }
@@ -1651,100 +1665,115 @@ class _PatientDetailPageState extends State<PatientDetailPage>
   Widget _buildScoreTab() {
     final scoresRaw = (_detail?['evaluationScores'] as List?) ?? [];
     final scores = scoresRaw.map((e) => (e as Map).cast<String, dynamic>()).toList();
+    final isLargeText = MediaQuery.textScalerOf(context).scale(14) > 18;
 
-    return Column(
-      children: [
-        // Sync Header Box
-        Container(
-          margin: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-            boxShadow: const [
-              BoxShadow(color: Color(0x0F0F172A), blurRadius: 8, offset: Offset(0, 2)),
-            ],
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Text(
-                      "Sinkronisasi Data Evaluasi",
-                      style: TextStyle(fontFamily: 'Nunito', fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      "Tarik nilai terbaru dari Google Sheets",
-                      style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF64748B)),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              SizedBox(
-                height: 48,
-                child: ElevatedButton.icon(
-                  onPressed: _isSyncingScores ? null : _syncAndRefreshScores,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  icon: _isSyncingScores
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                        )
-                      : const Icon(Icons.sync_rounded, size: 18),
-                  label: const Text('Sync', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
-                ),
-              ),
-            ],
-          ),
+    final syncTextColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: const [
+        Text(
+          "Sinkronisasi Data Evaluasi",
+          style: TextStyle(fontFamily: 'Nunito', fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
         ),
+        SizedBox(height: 2),
+        Text(
+          "Tarik nilai terbaru dari Google Sheets",
+          style: TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF64748B)),
+        ),
+      ],
+    );
 
-        Expanded(
-          child: scores.isEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: const [
-                        Icon(Icons.assignment_outlined, size: 48, color: Color(0xFF94A3B8)),
-                        SizedBox(height: 12),
-                        Text(
-                          "Belum Ada Data Nilai Evaluasi",
-                          style: TextStyle(fontFamily: 'Nunito', fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
-                        ),
-                      ],
-                    ),
+    final syncButton = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48),
+      child: ElevatedButton.icon(
+        onPressed: _isSyncingScores ? null : _syncAndRefreshScores,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF10B981),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        ),
+        icon: _isSyncingScores
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+              )
+            : const Icon(Icons.sync_rounded, size: 18),
+        label: const Text('Sync', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+      ),
+    );
+
+    final syncCard = Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const [
+          BoxShadow(color: Color(0x0F0F172A), blurRadius: 8, offset: Offset(0, 2)),
+        ],
+      ),
+      child: isLargeText
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                syncTextColumn,
+                const SizedBox(height: 12),
+                syncButton,
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(child: syncTextColumn),
+                const SizedBox(width: 12),
+                syncButton,
+              ],
+            ),
+    );
+
+    return RefreshIndicator(
+      color: const Color(0xFF10B981),
+      onRefresh: () async => _loadDetail(),
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+        itemCount: scores.isEmpty ? 2 : scores.length + 1,
+        itemBuilder: (context, rawIdx) {
+          if (rawIdx == 0) return syncCard;
+          if (scores.isEmpty) {
+            return const Padding(
+              padding: EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.assignment_outlined, size: 48, color: Color(0xFF94A3B8)),
+                  SizedBox(height: 12),
+                  Text(
+                    "Belum Ada Data Nilai Evaluasi",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontFamily: 'Nunito', fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
                   ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                  itemCount: scores.length,
-                  itemBuilder: (context, index) {
-                    final item = scores[index];
+                ],
+              ),
+            );
+          }
+          final item = scores[rawIdx - 1];
                     final label = _safeStr(item['label'], 'Evaluasi');
                     final cat = _safeStr(item['category'], 'Umum');
-                    final val = _safeInt(item['score']);
+                    final rawScore = item['score'];
+                    final scoreNum = num.tryParse('${rawScore ?? ''}');
+                    final scoreStr = rawScore != null ? AppDateFormatter.score(rawScore) : '-';
                     final date = _fmtDate(item['updatedAt'] ?? item['createdAt']);
 
                     Color bgPill = const Color(0xFFFEE2E2);
                     Color fgPill = const Color(0xFF991B1B);
 
-                    if (val >= 80) {
+                    if ((scoreNum ?? 0) >= 80) {
                       bgPill = const Color(0xFFD1FAE5);
                       fgPill = const Color(0xFF064E3B);
-                    } else if (val >= 60) {
+                    } else if ((scoreNum ?? 0) >= 60) {
                       bgPill = const Color(0xFFFEF3C7);
                       fgPill = const Color(0xFF78350F);
                     }
@@ -1765,15 +1794,15 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                           children: [
                             // Score Circle Pill
                             Container(
-                              width: 48,
-                              height: 48,
+                              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                               decoration: BoxDecoration(
                                 color: bgPill,
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Center(
                                 child: Text(
-                                  "$val",
+                                  scoreStr,
                                   style: TextStyle(
                                     fontFamily: 'Nunito',
                                     fontSize: 18,
@@ -1815,10 +1844,8 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                         ),
                       ),
                     );
-                  },
-                ),
+          },
         ),
-      ],
     );
   }
 
@@ -1836,7 +1863,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     final delivery = _safeStr(prof['delivery']);
     final gest = _safeInt(prof['gestationalWeeks']);
     final gender = _fmtGender(prof['babyGender']);
-    final weight = _safeInt(prof['birthWeight']);
+    final weight = _safeInt(infant['birthWeight'] ?? prof['birthWeight']);
     final addr = _safeStr(prof['address']);
 
     final mdx = _safeStr(infant['medicalDiagnosis']);
@@ -1897,6 +1924,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
           _ProfileSectionCard(
             title: 'Perkembangan Berat Badan',
             tiles: [
+              _InfoTile('Berat Saat Lahir', WeightFormatter.formatGrams(weight)),
               _InfoTile('BB Awal Intervensi', WeightFormatter.formatGrams(w0)),
               _InfoTile('BB Saat Pulang', WeightFormatter.formatGrams(w1)),
               _InfoTile('Tanggal Pulang', dc),
@@ -2019,17 +2047,22 @@ class _InfoTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              color: Color(0xFF64748B),
-              fontSize: 13,
+          Expanded(
+            flex: 4,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                color: Color(0xFF64748B),
+                fontSize: 13,
+              ),
             ),
           ),
-          Flexible(
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 5,
             child: Text(
               displayValue,
               textAlign: TextAlign.end,
@@ -2044,5 +2077,35 @@ class _InfoTile extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _TabBarHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final double height;
+  final Widget child;
+
+  const _TabBarHeaderDelegate({
+    required this.height,
+    required this.child,
+  });
+
+  @override
+  double get minExtent => height;
+
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: const Color(0xFFF8FAFC),
+      alignment: Alignment.center,
+      child: child,
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _TabBarHeaderDelegate oldDelegate) {
+    return oldDelegate.height != height || oldDelegate.child != child;
   }
 }

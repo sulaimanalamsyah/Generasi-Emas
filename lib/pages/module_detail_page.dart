@@ -10,9 +10,11 @@ import '../core/constants.dart';
 import '../core/pdf_helper.dart';
 import '../core/youtube_helper.dart';
 import '../routes.dart';
+import '../widgets/common.dart';
 import 'video_detail_page.dart';
 
 class ModuleDetailArguments {
+  final String? itemId;
   final String title;
   final String url;
   final String? description;
@@ -21,6 +23,7 @@ class ModuleDetailArguments {
   final List<Map<String, dynamic>> relatedItems;
 
   const ModuleDetailArguments({
+    this.itemId,
     required this.title,
     required this.url,
     this.description,
@@ -40,6 +43,7 @@ class ModuleDetailPage extends StatefulWidget {
 }
 
 class _ModuleDetailPageState extends State<ModuleDetailPage> {
+  String? _currentItemId;
   late String _currentTitle;
   late String _currentUrl;
   String? _currentDescription;
@@ -50,12 +54,14 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
   bool _isLoading = true;
   String? _errorMessage;
   bool _isFullscreen = false;
+  bool _isReaderInteractive = false;
   bool _isCustomWidgetShown = false;
   Timer? _loadingTimeout;
 
   @override
   void initState() {
     super.initState();
+    _currentItemId = widget.args.itemId;
     _currentTitle = widget.args.title;
     _currentUrl = widget.args.url;
     _currentDescription = widget.args.description;
@@ -149,8 +155,10 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
                   },
                   child: Scaffold(
                     backgroundColor: Colors.black,
-                    body: SizedBox.expand(
-                      child: widget,
+                    body: SafeArea(
+                      child: SizedBox.expand(
+                        child: widget,
+                      ),
                     ),
                   ),
                 );
@@ -214,9 +222,11 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
 
   void _switchDocument(Map<String, dynamic> doc) {
     setState(() {
+      _currentItemId = doc['id']?.toString();
       _currentTitle = (doc['title'] ?? 'Dokumen Modul').toString();
       _currentUrl = (doc['url'] ?? '').toString();
       _currentDescription = doc['description'] as String?;
+      _isReaderInteractive = false;
     });
     _loadDocument();
   }
@@ -256,6 +266,7 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
         context,
         Routes.videoDetail,
         arguments: VideoDetailArguments(
+          itemId: item['id']?.toString(),
           title: (item['title'] ?? 'Video Edukasi').toString(),
           url: (item['url'] ?? '').toString(),
           description: item['description'] as String?,
@@ -369,32 +380,38 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
             child: Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
           ),
         ),
-        body: _isFullscreen
-            ? _buildReaderView()
-            : ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                children: [
-                  // 1. Metadata Info Card
-                  _buildMetadataCard(),
+        body: SafeArea(
+          top: false,
+          child: _isFullscreen
+              ? _buildReaderView(interactive: true)
+              : ListView(
+                  physics: _isReaderInteractive
+                      ? const NeverScrollableScrollPhysics()
+                      : const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  children: [
+                    // 1. Metadata Info Card
+                    _buildMetadataCard(),
 
-                  const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-                  // 2. Interactive In-App Flipbook Reader Viewport
-                  _buildReaderSection(),
+                    // 2. Interactive In-App Flipbook Reader Viewport
+                    _buildReaderSection(),
 
-                  const SizedBox(height: 14),
+                    const SizedBox(height: 14),
 
-                  // 3. Reader Quick Actions Bar
-                  _buildQuickActionsBar(),
+                    // 3. Reader Quick Actions Bar
+                    _buildQuickActionsBar(),
 
-                  const SizedBox(height: 24),
+                    const SizedBox(height: 24),
 
-                  // 4. Related Module Materials
-                  _buildRelatedMaterialsSection(),
+                    // 4. Related Module Materials
+                    _buildRelatedMaterialsSection(),
 
-                  const SizedBox(height: 32),
-                ],
-              ),
+                    const SizedBox(height: 32),
+                  ],
+                ),
+        ),
       ),
     );
   }
@@ -432,13 +449,15 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
                   const Icon(Icons.auto_stories_rounded,
                       size: 14, color: Color(0xFF047857)),
                   const SizedBox(width: 6),
-                  Text(
-                    _currentModuleTitle!,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF047857),
+                  Flexible(
+                    child: Text(
+                      _currentModuleTitle!,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF047857),
+                      ),
                     ),
                   ),
                 ],
@@ -537,26 +556,16 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
   }
 
   Widget _buildReaderSection() {
-    return Container(
-      height: 440,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFCBD5E1)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0A0F172A),
-            blurRadius: 12,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: _buildReaderView(),
+    return EnicareReaderSectionFrame(
+      isInteractive: _isReaderInteractive,
+      isLoading: _isLoading,
+      hasError: _errorMessage != null,
+      onToggleInteractive: () => setState(() => _isReaderInteractive = !_isReaderInteractive),
+      child: _buildReaderView(interactive: _isReaderInteractive),
     );
   }
 
-  Widget _buildReaderView() {
+  Widget _buildReaderView({bool interactive = false}) {
     if (_errorMessage != null) {
       return Center(
         child: Padding(
@@ -577,8 +586,10 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
                 ),
               ),
               const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 10,
+                runSpacing: 8,
                 children: [
                   ElevatedButton.icon(
                     onPressed: _loadDocument,
@@ -590,7 +601,6 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
                       elevation: 0,
                     ),
                   ),
-                  const SizedBox(width: 10),
                   OutlinedButton.icon(
                     onPressed: _openInExternalBrowser,
                     icon: const Icon(Icons.open_in_browser_rounded, size: 16),
@@ -609,11 +619,13 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
         RepaintBoundary(
           child: WebViewWidget(
             controller: _controller,
-            gestureRecognizers: {
-              Factory<OneSequenceGestureRecognizer>(
-                () => EagerGestureRecognizer(),
-              ),
-            },
+            gestureRecognizers: interactive
+                ? {
+                    Factory<OneSequenceGestureRecognizer>(
+                      () => EagerGestureRecognizer(),
+                    ),
+                  }
+                : const <Factory<OneSequenceGestureRecognizer>>{},
           ),
         ),
         if (_isLoading)
@@ -645,9 +657,10 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
   }
 
   Widget _buildQuickActionsBar() {
-    return Row(
-      children: [
-        Expanded(
+    return ResponsiveActionButtonBar(
+      actions: [
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
           child: OutlinedButton.icon(
             onPressed: _toggleFullscreen,
             icon: Icon(
@@ -659,6 +672,7 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
             ),
             label: Text(
               _isFullscreen ? 'Keluar Fullscreen' : 'Layar Penuh',
+              textAlign: TextAlign.center,
               style: const TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 12,
@@ -667,21 +681,21 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
               ),
             ),
             style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
               side: const BorderSide(color: Color(0xFFCBD5E1)),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
-              minimumSize: const Size(48, 48),
             ),
           ),
         ),
-        const SizedBox(width: 8),
-        Expanded(
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
           child: OutlinedButton.icon(
             onPressed: _copyLinkToClipboard,
             icon: const Icon(Icons.link_rounded, size: 18, color: kPrimary),
             label: const Text(
               'Salin Tautan',
+              textAlign: TextAlign.center,
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 12,
@@ -690,21 +704,21 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
               ),
             ),
             style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
               side: const BorderSide(color: Color(0xFFD1FAE5)),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
-              minimumSize: const Size(48, 48),
             ),
           ),
         ),
-        const SizedBox(width: 8),
-        Expanded(
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
           child: ElevatedButton.icon(
             onPressed: _openInExternalBrowser,
             icon: const Icon(Icons.open_in_new_rounded, size: 16),
             label: const Text(
               'Buka Asli',
+              textAlign: TextAlign.center,
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 12,
@@ -715,10 +729,9 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
               backgroundColor: kPrimary,
               foregroundColor: Colors.white,
               elevation: 0,
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
-              minimumSize: const Size(48, 48),
             ),
           ),
         ),
@@ -728,23 +741,30 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
 
   Widget _buildRelatedMaterialsSection() {
     final otherItems = _relatedItems
-        .where((it) => (it['url'] ?? '').toString() != _currentUrl)
+        .where((it) => !isSameLibraryItem(
+              currentId: _currentItemId,
+              currentTitle: _currentTitle,
+              currentUrl: _currentUrl,
+              candidate: it,
+            ))
         .toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: const [
+        const Row(
+          children: [
             Icon(Icons.library_books_rounded, size: 18, color: Color(0xFF0F172A)),
             SizedBox(width: 8),
-            Text(
-              "Materi Lain Dalam Modul Ini",
-              style: TextStyle(
-                fontFamily: 'Nunito',
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF0F172A),
+            Expanded(
+              child: Text(
+                "Materi Lain Dalam Modul Ini",
+                style: TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0F172A),
+                ),
               ),
             ),
           ],
@@ -850,12 +870,15 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
 
               return Container(
                 decoration: BoxDecoration(
-                  color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: const Color(0xFFE2E8F0)),
                 ),
-                child: ListTile(
-                  onTap: () => _handleSiblingTap(item),
+                child: Material(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(11),
+                  clipBehavior: Clip.antiAlias,
+                  child: ListTile(
+                    onTap: () => _handleSiblingTap(item),
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                   leading: leadingWidget,
@@ -906,8 +929,9 @@ class _ModuleDetailPageState extends State<ModuleDetailPage> {
                       ],
                     ),
                   ),
-                  trailing: const Icon(Icons.arrow_forward_ios_rounded,
-                      size: 14, color: kPrimary),
+                    trailing: const Icon(Icons.arrow_forward_ios_rounded,
+                        size: 14, color: kPrimary),
+                  ),
                 ),
               );
             },

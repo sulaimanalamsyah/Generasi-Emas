@@ -1,7 +1,9 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:intl/intl.dart';
 import '../services/api_client.dart';
+import '../core/storage.dart';
 import '../core/weight_formatter.dart';
+import '../widgets/common.dart';
 
 class ProfileInfantDetailPage extends StatefulWidget {
   const ProfileInfantDetailPage({super.key});
@@ -19,6 +21,7 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
 
   final _nameCtrl = TextEditingController();
   final _medicalDiagnosisCtrl = TextEditingController();
+  final _birthWeightCtrl = TextEditingController();
   final _weightInterventionCtrl = TextEditingController();
   final _weightDischargeCtrl = TextEditingController();
 
@@ -34,8 +37,11 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
   DateTime? _origAdmission;
   DateTime? _origFincStart;
   DateTime? _origDischarge;
+  String _origBirthWeight = '';
   String _origWeightIntervention = '';
   String _origWeightDischarge = '';
+
+  static const _kInfantCacheKey = 'patient_infant_detail_v1';
 
   @override
   void initState() {
@@ -47,57 +53,19 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
   void dispose() {
     _nameCtrl.dispose();
     _medicalDiagnosisCtrl.dispose();
+    _birthWeightCtrl.dispose();
     _weightInterventionCtrl.dispose();
     _weightDischargeCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _showDialogInfo(String title, String message, {bool isError = false}) {
-    return showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_outline : Icons.check_circle_outline,
-              color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontWeight: FontWeight.w700,
-                  color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          message,
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 14,
-            color: Color(0xFF0F172A),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text(
-              "OK",
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF10B981),
-              ),
-            ),
-          )
-        ],
-      ),
+  Future<void> _showDialogInfo(String title, String message, {bool isError = false, InfoDialogVariant? variant}) {
+    return showAppInfoDialog(
+      context,
+      title: title,
+      message: message,
+      isError: isError,
+      variant: variant,
     );
   }
 
@@ -109,57 +77,88 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
   String _formatDateFull(DateTime d) =>
       DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(d.toLocal());
 
+  void _applyInfantPayload(Map<String, dynamic>? profileRes, Map<String, dynamic>? m) {
+    final bool isObs = (profileRes != null && profileRes['isObserver'] == true);
+
+    final name = (m?['name'] as String?) ?? '';
+    final diagnosis = (m?['medicalDiagnosis'] as String?) ?? '';
+
+    final birthDate = ApiClient.parseDate(m?['birthDate']);
+    final admission = ApiClient.parseDate(m?['admissionDate']);
+    final finc = ApiClient.parseDate(m?['fincStart']);
+    final discharge = ApiClient.parseDate(m?['dischargeDate']);
+
+    final rawProfile = (profileRes?['profile'] is Map) ? (profileRes!['profile'] as Map) : null;
+    final bWeight = m?['birthWeight'] ?? rawProfile?['birthWeight'];
+    final wInterv = m?['weightAtIntervention'];
+    final wDisch = m?['weightAtDischarge'];
+
+    final bWeightStr = (bWeight is num) ? bWeight.toInt().toString() : '';
+    final wIntervStr = (wInterv is num) ? wInterv.toInt().toString() : '';
+    final wDischStr = (wDisch is num) ? wDisch.toInt().toString() : '';
+
+    setState(() {
+      _isObserver = isObs;
+      _nameCtrl.text = name;
+      _medicalDiagnosisCtrl.text = diagnosis;
+      _birthDateLocal = birthDate;
+      _admissionLocal = admission;
+      _fincStartLocal = finc;
+      _dischargeLocal = discharge;
+      _birthWeightCtrl.text = bWeightStr;
+      _weightInterventionCtrl.text = wIntervStr;
+      _weightDischargeCtrl.text = wDischStr;
+
+      // Snapshot original fetched state
+      _origName = name;
+      _origDiagnosis = diagnosis;
+      _origBirthDate = birthDate;
+      _origAdmission = admission;
+      _origFincStart = finc;
+      _origDischarge = discharge;
+      _origBirthWeight = bWeightStr;
+      _origWeightIntervention = wIntervStr;
+      _origWeightDischarge = wDischStr;
+
+      _loading = false;
+    });
+  }
+
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
       final profileRes = await _api.getMyProfile();
-      final bool isObs = (profileRes != null && profileRes['isObserver'] == true);
-
       final m = await _api.getInfant();
       if (!mounted) return;
 
-      final name = (m?['name'] as String?) ?? '';
-      final diagnosis = (m?['medicalDiagnosis'] as String?) ?? '';
-
-      final birthDate = ApiClient.parseDate(m?['birthDate']);
-      final admission = ApiClient.parseDate(m?['admissionDate']);
-      final finc = ApiClient.parseDate(m?['fincStart']);
-      final discharge = ApiClient.parseDate(m?['dischargeDate']);
-
-      final wInterv = m?['weightAtIntervention'];
-      final wDisch = m?['weightAtDischarge'];
-
-      final wIntervStr = (wInterv is int) ? wInterv.toString() : '';
-      final wDischStr = (wDisch is int) ? wDisch.toString() : '';
-
-      setState(() {
-        _isObserver = isObs;
-        _nameCtrl.text = name;
-        _medicalDiagnosisCtrl.text = diagnosis;
-        _birthDateLocal = birthDate;
-        _admissionLocal = admission;
-        _fincStartLocal = finc;
-        _dischargeLocal = discharge;
-        _weightInterventionCtrl.text = wIntervStr;
-        _weightDischargeCtrl.text = wDischStr;
-
-        // Snapshot original fetched state
-        _origName = name;
-        _origDiagnosis = diagnosis;
-        _origBirthDate = birthDate;
-        _origAdmission = admission;
-        _origFincStart = finc;
-        _origDischarge = discharge;
-        _origWeightIntervention = wIntervStr;
-        _origWeightDischarge = wDischStr;
-
-        _loading = false;
+      await Prefs.setCachedJson(_kInfantCacheKey, {
+        'profile': profileRes,
+        'infant': m,
       });
+      _applyInfantPayload(profileRes, m);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _loading = false);
       if (e is ApiError && e.status == 0) {
-        _showDialogInfo("Offline", "Gagal memuat data bayi. Periksa koneksi internet.", isError: true);
+        final cached = await Prefs.getCachedJson(_kInfantCacheKey);
+        if (!mounted) return;
+        if (cached is Map) {
+          final pMap = cached['profile'] is Map ? Map<String, dynamic>.from(cached['profile']) : null;
+          final iMap = cached['infant'] is Map ? Map<String, dynamic>.from(cached['infant']) : null;
+          _applyInfantPayload(pMap, iMap);
+          showAppSnackBar(
+            context,
+            message: 'Menampilkan data terakhir tersimpan (mode luring).',
+          );
+          return;
+        }
+        setState(() => _loading = false);
+        _showDialogInfo(
+          "Luring",
+          "Gagal memuat data bayi. Periksa koneksi internet.",
+          variant: InfoDialogVariant.warning,
+        );
+      } else {
+        setState(() => _loading = false);
       }
     }
   }
@@ -172,6 +171,7 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
       _admissionLocal = _origAdmission;
       _fincStartLocal = _origFincStart;
       _dischargeLocal = _origDischarge;
+      _birthWeightCtrl.text = _origBirthWeight;
       _weightInterventionCtrl.text = _origWeightIntervention;
       _weightDischargeCtrl.text = _origWeightDischarge;
       _editing = false;
@@ -186,28 +186,12 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
     if (_isObserver || !_editing) return;
     final now = DateTime.now();
     final initial = current ?? now;
-    final picked = await showDatePicker(
+    final picked = await showEnicareDatePicker(
       context: context,
       initialDate: initial,
       firstDate: DateTime(2020),
       lastDate: DateTime(now.year + 1),
       helpText: helpText,
-      cancelText: 'Batal',
-      confirmText: 'Pilih',
-      locale: const Locale('id', 'ID'),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF10B981),
-              onPrimary: Colors.white,
-              surface: Colors.white,
-              onSurface: Color(0xFF0F172A),
-            ),
-          ),
-          child: child!,
-        );
-      },
     );
     if (picked != null && mounted) {
       onChanged(DateTime(picked.year, picked.month, picked.day));
@@ -218,7 +202,18 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
     if (_isObserver) return;
 
     if (_fincStartLocal == null) {
-      _showDialogInfo("Data Belum Lengkap", "Tanggal Mulai FINC wajib dipilih agar logbook aktif.", isError: true);
+      _showDialogInfo("Data Belum Lengkap", "Tanggal Mulai FINC wajib dipilih agar logbook aktif.", variant: InfoDialogVariant.warning);
+      return;
+    }
+
+    final rawBirthWeight = _birthWeightCtrl.text.trim();
+    final birthWeight = _parseIntOrNull(rawBirthWeight);
+    if (rawBirthWeight.isNotEmpty && (birthWeight == null || birthWeight < 300 || birthWeight > 6000)) {
+      _showDialogInfo(
+        "Input Tidak Valid",
+        "Berat Saat Lahir harus antara 300 hingga 6000 gram.",
+        variant: InfoDialogVariant.warning,
+      );
       return;
     }
 
@@ -233,6 +228,7 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
       body['admissionDate'] = ApiClient.formatDateTimeIso(_admissionLocal);
       body['fincStart'] = ApiClient.formatDateTimeIso(_fincStartLocal);
       body['dischargeDate'] = ApiClient.formatDateTimeIso(_dischargeLocal);
+      body['birthWeight'] = birthWeight;
       body['weightAtIntervention'] = _parseIntOrNull(_weightInterventionCtrl.text);
       body['weightAtDischarge'] = _parseIntOrNull(_weightDischargeCtrl.text);
 
@@ -266,20 +262,9 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
       },
       child: Scaffold(
         backgroundColor: const Color(0xFFF8FAFC),
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          elevation: 0.5,
-          surfaceTintColor: Colors.transparent,
-          title: const Text(
-            'Data Bayi (Program FINC)',
-            style: TextStyle(
-              fontFamily: 'Nunito',
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF0F172A),
-            ),
-          ),
-          iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
+        appBar: enicareAppBar(
+          context,
+          title: 'Data Bayi',
           actions: [
             if (!_isObserver && !_editing)
               TextButton.icon(
@@ -315,7 +300,9 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
               ),
           ],
         ),
-        body: _loading
+        body: SafeArea(
+          top: false,
+          child: _loading
             ? Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -510,6 +497,14 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
                         children: [
                           if (_editing) ...[
                             _buildTextField(
+                              c: _birthWeightCtrl,
+                              label: 'Berat Saat Lahir (gram)',
+                              hint: 'Contoh: 2400 (300–6000)',
+                              type: TextInputType.number,
+                              suffixText: 'gram',
+                            ),
+                            const SizedBox(height: 12),
+                            _buildTextField(
                               c: _weightInterventionCtrl,
                               label: 'Berat Saat Intervensi (gram)',
                               hint: 'Contoh: 1800',
@@ -526,12 +521,22 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
                             ),
                           ] else ...[
                             _buildViewRow(
+                              'Berat Saat Lahir',
+                              _birthWeightCtrl.text.isNotEmpty
+                                  ? WeightFormatter.formatGrams(int.tryParse(_birthWeightCtrl.text))
+                                  : '-',
+                            ),
+                            _buildViewRow(
                               'Berat Intervensi',
-                              _weightInterventionCtrl.text.isNotEmpty ? WeightFormatter.formatGrams(int.tryParse(_weightInterventionCtrl.text)) : '-',
+                              _weightInterventionCtrl.text.isNotEmpty
+                                  ? WeightFormatter.formatGrams(int.tryParse(_weightInterventionCtrl.text))
+                                  : '-',
                             ),
                             _buildViewRow(
                               'Berat Pulang',
-                              _weightDischargeCtrl.text.isNotEmpty ? WeightFormatter.formatGrams(int.tryParse(_weightDischargeCtrl.text)) : '-',
+                              _weightDischargeCtrl.text.isNotEmpty
+                                  ? WeightFormatter.formatGrams(int.tryParse(_weightDischargeCtrl.text))
+                                  : '-',
                               isLast: true,
                             ),
                           ],
@@ -595,6 +600,7 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
                   ),
                 ),
               ),
+        ),
       ),
     );
   }
@@ -630,13 +636,15 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
                 child: Icon(icon, size: 20, color: const Color(0xFF10B981)),
               ),
               const SizedBox(width: 12),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
                 ),
               ),
             ],
@@ -657,8 +665,8 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 130,
+          Expanded(
+            flex: 4,
             child: Text(
               label,
               style: const TextStyle(
@@ -670,6 +678,7 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
           ),
           const SizedBox(width: 10),
           Expanded(
+            flex: 5,
             child: Text(
               displayVal,
               style: const TextStyle(
@@ -758,41 +767,48 @@ class _ProfileInfantDetailPageState extends State<ProfileInfantDetailPage> {
           ),
         ),
       ),
-      child: Row(
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        runSpacing: 4,
         children: [
-          Expanded(
-            child: Text(
-              dateStr,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 14,
-                fontWeight: value != null ? FontWeight.w600 : FontWeight.w400,
-                color: value != null ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
-              ),
+          Text(
+            dateStr,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 14,
+              fontWeight: value != null ? FontWeight.w600 : FontWeight.w400,
+              color: value != null ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
             ),
           ),
           if (!disabled)
-            SizedBox(
-              height: 38,
-              child: TextButton.icon(
-                onPressed: onPick,
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  foregroundColor: const Color(0xFF10B981),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 40),
+                  child: TextButton.icon(
+                    onPressed: onPick,
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      foregroundColor: const Color(0xFF10B981),
+                    ),
+                    icon: const Icon(Icons.edit_calendar_outlined, size: 18),
+                    label: const Text('Pilih', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13)),
+                  ),
                 ),
-                icon: const Icon(Icons.edit_calendar_outlined, size: 18),
-                label: const Text('Pilih', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13)),
-              ),
-            ),
-          if (value != null && !disabled)
-            SizedBox(
-              width: 32,
-              height: 38,
-              child: IconButton(
-                onPressed: onClear,
-                padding: EdgeInsets.zero,
-                icon: const Icon(Icons.clear_rounded, size: 18, color: Color(0xFF94A3B8)),
-              ),
+                if (value != null)
+                  SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: IconButton(
+                      onPressed: onClear,
+                      padding: EdgeInsets.zero,
+                      icon: const Icon(Icons.clear_rounded, size: 18, color: Color(0xFF94A3B8)),
+                    ),
+                  ),
+              ],
             ),
         ],
       ),

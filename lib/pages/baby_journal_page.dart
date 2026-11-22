@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../services/api_client.dart';
 import '../routes.dart';
 import '../core/storage.dart';
+import '../widgets/common.dart';
 
 class BabyJournalPage extends StatefulWidget {
   const BabyJournalPage({super.key});
@@ -48,53 +49,13 @@ class _BabyJournalPageState extends State<BabyJournalPage> {
     }
   }
 
-  // Helper Alert Dialog with styled design
-  Future<void> _showDialogInfo(String title, String message, {bool isError = false}) {
-    return showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_outline : Icons.check_circle_outline,
-              color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontWeight: FontWeight.w700,
-                  color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          message,
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 14,
-            color: Color(0xFF0F172A),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text(
-              "OK",
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF10B981),
-              ),
-            ),
-          )
-        ],
-      ),
+  Future<void> _showDialogInfo(String title, String message, {bool isError = false, InfoDialogVariant? variant}) {
+    return showAppInfoDialog(
+      context,
+      title: title,
+      message: message,
+      isError: isError,
+      variant: variant,
     );
   }
 
@@ -252,11 +213,27 @@ class _BabyJournalPageState extends State<BabyJournalPage> {
     return filtered.skip(startIndex).take(_kPageSize).toList();
   }
 
+  static const _kJournalCacheKey = 'patient_baby_journal_v1';
+
+  void _applyJournalState(bool nextHasInfant, List<Map<String, dynamic>> nextItems) {
+    if (!mounted) return;
+    setState(() {
+      _hasInfant = nextHasInfant;
+      _items = nextItems;
+      _currentStreak = _computeStreak(_items);
+      _longestStreak = _computeLongestStreak(_items);
+      _hasLoggedToday = _computeHasLoggedToday(_items);
+      _currentPage = 1;
+      _loading = false;
+    });
+  }
+
   Future<void> _load() async {
     setState(() => _loading = true);
 
     var nextHasInfant = _hasInfant;
     List<Map<String, dynamic>> nextItems = _items;
+    var appliedFromCache = false;
 
     try {
       final infant = await _api.getInfant();
@@ -269,29 +246,45 @@ class _BabyJournalPageState extends State<BabyJournalPage> {
       } else {
         nextItems = const [];
       }
+      await Prefs.setCachedJson(_kJournalCacheKey, {
+        'hasInfant': nextHasInfant,
+        'items': nextItems,
+      });
     } catch (e) {
       final msg = e.toString().toLowerCase();
       if (msg.contains('bayi') && msg.contains('belum ada')) {
         nextHasInfant = false;
         nextItems = const [];
-      } else {
-        if (mounted) {
-          if (e is ApiError && e.status == 0) {
-            _showDialogInfo("Offline", "Tidak dapat memuat jurnal. Periksa koneksi internet.", isError: true);
+      } else if (e is ApiError && e.status == 0) {
+        final cached = await Prefs.getCachedJson(_kJournalCacheKey);
+        if (cached is Map && cached['items'] is List) {
+          nextHasInfant = cached['hasInfant'] != false;
+          nextItems = (cached['items'] as List)
+              .whereType<Map>()
+              .map((m) => m.cast<String, dynamic>())
+              .toList();
+          appliedFromCache = true;
+          if (mounted) {
+            showAppSnackBar(
+              context,
+              message: 'Menampilkan data terakhir tersimpan (mode luring).',
+            );
           }
+        } else if (mounted) {
+          _showDialogInfo(
+            "Luring",
+            "Tidak dapat memuat jurnal. Periksa koneksi internet.",
+            variant: InfoDialogVariant.warning,
+          );
         }
       }
     } finally {
       if (mounted) {
-        setState(() {
-          _hasInfant = nextHasInfant;
-          _items = nextItems;
-          _currentStreak = _computeStreak(_items);
-          _longestStreak = _computeLongestStreak(_items);
-          _hasLoggedToday = _computeHasLoggedToday(_items);
-          _currentPage = 1;
-          _loading = false;
-        });
+        if (appliedFromCache || nextItems.isNotEmpty || !nextHasInfant || _items.isEmpty) {
+          _applyJournalState(nextHasInfant, nextItems);
+        } else {
+          setState(() => _loading = false);
+        }
       }
     }
   }
@@ -346,6 +339,7 @@ class _BabyJournalPageState extends State<BabyJournalPage> {
   void _showAddOrEditChoiceSheet(Map<String, dynamic> todayEntry) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         final now = DateTime.now().toLocal();
@@ -355,181 +349,186 @@ class _BabyJournalPageState extends State<BabyJournalPage> {
             color: Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFCBD5E1),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const Text(
-                'Jurnal Hari Ini Sudah Ada',
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Anda sudah memiliki catatan untuk $formattedToday. Silakan pilih opsi:',
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 13,
-                  color: Color(0xFF64748B),
-                ),
-              ),
-              const SizedBox(height: 18),
-              InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _openEditJournalSheet(todayEntry, isTodayEdit: true);
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF0FDF4),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFBBF7D0)),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFD1FAE5),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(
-                          Icons.edit_note_rounded,
-                          color: Color(0xFF10B981),
-                          size: 22,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Ubah Jurnal Hari Ini',
-                              style: TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF0F172A),
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Perbarui catatan aktivitas si kecil untuk hari ini',
-                              style: TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 12,
-                                color: Color(0xFF64748B),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8)),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _openAddJournalSheet();
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE2E8F0),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(
-                          Icons.edit_calendar_rounded,
-                          color: Color(0xFF475569),
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Catat Jurnal untuk Tanggal Lain',
-                              style: TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF0F172A),
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Pilih tanggal kemarin atau tanggal lain yang terlewat',
-                              style: TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 12,
-                                color: Color(0xFF64748B),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8)),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                height: 44,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  style: TextButton.styleFrom(
-                    foregroundColor: const Color(0xFF64748B),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  child: const Text(
-                    'Batal',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
+          padding: sheetBottomPadding(ctx, top: 12, extra: 20),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFCBD5E1),
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                 ),
-              ),
-            ],
+                const Text(
+                  'Jurnal Hari Ini Sudah Ada',
+                  style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Anda sudah memiliki catatan untuk $formattedToday. Silakan pilih opsi:',
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _openEditJournalSheet(todayEntry, isTodayEdit: true);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FDF4),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFBBF7D0)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFD1FAE5),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(
+                            Icons.edit_note_rounded,
+                            color: Color(0xFF10B981),
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Ubah Jurnal Hari Ini',
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF0F172A),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Perbarui catatan aktivitas si kecil untuk hari ini',
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 12,
+                                  color: Color(0xFF64748B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8)),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _openAddJournalSheet();
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE2E8F0),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(
+                            Icons.edit_calendar_rounded,
+                            color: Color(0xFF475569),
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Catat Jurnal untuk Tanggal Lain',
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF0F172A),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Pilih tanggal kemarin atau tanggal lain yang terlewat',
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 12,
+                                  color: Color(0xFF64748B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8)),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 48),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFF64748B),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: const Text(
+                        'Batal',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -615,59 +614,13 @@ class _BabyJournalPageState extends State<BabyJournalPage> {
     final date = ApiClient.parseDate(item['date']) ?? DateTime.now();
     final dateLabel = _formatDate(date);
 
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text(
-            'Hapus jurnal?',
-            style: TextStyle(
-              fontFamily: 'Nunito',
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF0F172A),
-            ),
-          ),
-          content: Text(
-            'Jurnal bayi tanggal $dateLabel akan dihapus. Tindakan ini tidak dapat dibatalkan.',
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 14,
-              color: Color(0xFF475569),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text(
-                'Batal',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF475569),
-                ),
-              ),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFEF4444),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text(
-                'Hapus',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    ) ?? false;
+    final ok = await showAppConfirmDialog(
+      context,
+      title: 'Hapus Jurnal?',
+      message: 'Jurnal bayi tanggal $dateLabel akan dihapus. Tindakan ini tidak dapat dibatalkan.',
+      confirmLabel: 'Hapus',
+      isDestructive: true,
+    );
 
     if (!ok) return;
 
@@ -996,56 +949,43 @@ class _BabyJournalPageState extends State<BabyJournalPage> {
                   ),
                 ),
                 if (!_isObserver)
-                  SizedBox(
-                    width: 48,
-                    height: 48,
-                    child: PopupMenuButton<String>(
-                      padding: EdgeInsets.zero,
-                      icon: const Icon(
-                        Icons.more_vert_rounded,
-                        color: Color(0xFF94A3B8),
-                        size: 20,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      onSelected: (value) {
-                        switch (value) {
-                          case 'edit':
-                            _openEditJournalSheet(it);
-                            break;
-                          case 'delete':
-                            _confirmDeleteJournal(it);
-                            break;
-                        }
-                      },
-                      itemBuilder: (ctx) => const [
-                        PopupMenuItem(
-                          value: 'edit',
-                          child: Row(
-                            children: [
-                              Icon(Icons.edit_outlined, size: 18, color: Color(0xFF0F172A)),
-                              SizedBox(width: 10),
-                              Text('Ubah', style: TextStyle(fontFamily: 'Inter', fontSize: 14)),
-                            ],
-                          ),
-                        ),
-                        PopupMenuItem(
-                          value: 'delete',
-                          child: Row(
-                            children: [
-                              Icon(Icons.delete_outline_rounded, size: 18, color: Color(0xFFEF4444)),
-                              SizedBox(width: 10),
-                              Text('Hapus',
-                                  style: TextStyle(
-                                      fontFamily: 'Inter',
-                                      fontSize: 14,
-                                      color: Color(0xFFEF4444))),
-                            ],
-                          ),
-                        ),
-                      ],
+                  IconButton(
+                    icon: const Icon(
+                      Icons.more_vert_rounded,
+                      color: Color(0xFF64748B),
+                      size: 20,
                     ),
+                    tooltip: 'Opsi Jurnal',
+                    constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                    onPressed: () {
+                      showEnicareOptionSheet<String>(
+                        context,
+                        title: 'Opsi Jurnal',
+                        subtitle: 'Kelola entri jurnal bayi ini',
+                        options: const [
+                          EnicarePickerOption<String>(
+                            value: 'edit',
+                            label: 'Ubah Jurnal',
+                            subtitle: 'Perbarui isi atau tanggal catatan',
+                            icon: Icons.edit_outlined,
+                          ),
+                          EnicarePickerOption<String>(
+                            value: 'delete',
+                            label: 'Hapus Jurnal',
+                            subtitle: 'Hapus entri ini secara permanen',
+                            icon: Icons.delete_outline_rounded,
+                            isDestructive: true,
+                          ),
+                        ],
+                        onSelected: (value) {
+                          if (value == 'edit') {
+                            _openEditJournalSheet(it);
+                          } else if (value == 'delete') {
+                            _confirmDeleteJournal(it);
+                          }
+                        },
+                      );
+                    },
                   ),
               ],
             ),
@@ -1115,23 +1055,16 @@ class _BabyJournalPageState extends State<BabyJournalPage> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0.5,
-        title: const Text(
-          'Jurnal Bayi',
-          style: TextStyle(
-            fontFamily: 'Nunito',
-            fontWeight: FontWeight.w800,
-            fontSize: 20,
-            color: Color(0xFF0F172A),
-          ),
-        ),
+      appBar: enicareAppBar(
+        context,
+        title: 'Jurnal Bayi',
+        showBackButton: Navigator.of(context).canPop(),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)))
-          : RefreshIndicator(
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)))
+            : RefreshIndicator(
               color: const Color(0xFF10B981),
               onRefresh: _load,
               child: CustomScrollView(
@@ -1266,11 +1199,12 @@ class _BabyJournalPageState extends State<BabyJournalPage> {
                     ),
                   ],
                   const SliverToBoxAdapter(
-                    child: SizedBox(height: 80),
+                    child: SizedBox(height: 88),
                   ),
                 ],
               ),
             ),
+      ),
       floatingActionButton: canAdd
           ? FloatingActionButton(
               backgroundColor: const Color(0xFF10B981),
@@ -1331,7 +1265,7 @@ class _StreakBanner extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Mulai Streak Jurnal Anda!',
+                    'Bangun Kebiasaan Mencatat Harian',
                     style: TextStyle(
                       fontFamily: 'Nunito',
                       fontWeight: FontWeight.w800,
@@ -1393,7 +1327,10 @@ class _StreakBanner extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(
                       '$currentStreak Hari Berturut-turut',
@@ -1404,8 +1341,7 @@ class _StreakBanner extends StatelessWidget {
                         color: Color(0xFF451A03),
                       ),
                     ),
-                    if (hasLoggedToday) ...[
-                      const SizedBox(width: 6),
+                    if (hasLoggedToday)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
@@ -1422,7 +1358,6 @@ class _StreakBanner extends StatelessWidget {
                           ),
                         ),
                       ),
-                    ],
                   ],
                 ),
                 const SizedBox(height: 2),
@@ -1431,7 +1366,7 @@ class _StreakBanner extends StatelessWidget {
                       ? 'Rekor terbaik: $longestStreak hari  •  Pertahankan terus!'
                       : (hasLoggedToday
                           ? 'Hebat! Anda sudah mengisi jurnal hari ini.'
-                          : 'Jangan lupa isi jurnal hari ini untuk menjaga streak!'),
+                          : 'Jangan lupa isi jurnal hari ini untuk menjaga kebiasaan baik.'),
                   style: const TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 12,
@@ -1664,139 +1599,120 @@ class _FilterBar extends StatelessWidget {
       'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
     ];
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: Row(
-        children: [
-          const SizedBox(
-            width: 28,
-            height: 38,
-            child: Center(
-              child: Icon(Icons.filter_list_rounded, size: 20, color: Color(0xFF64748B)),
-            ),
-          ),
-          const SizedBox(width: 4),
-          // Month Dropdown
-          Expanded(
-            flex: 1,
-            child: Container(
-              height: 38,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              decoration: BoxDecoration(
-                color: filterMonth != null ? const Color(0xFFD1FAE5) : const Color(0xFFF1F5F9),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: filterMonth != null ? const Color(0xFF10B981) : const Color(0xFFCBD5E1),
-                ),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<int?>(
-                  value: filterMonth,
-                  isDense: true,
-                  isExpanded: true,
-                  icon: const Icon(Icons.arrow_drop_down_rounded, size: 20, color: Color(0xFF475569)),
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: filterMonth != null ? const Color(0xFF065F46) : const Color(0xFF334155),
-                  ),
-                  items: months.map((m) {
-                    return DropdownMenuItem<int?>(
+    final isLargeText = MediaQuery.textScalerOf(context).scale(12) > 15.5;
+
+    Widget buildMonthDropdown() => EnicarePickerField(
+          displayText: filterMonth == null ? 'Semua Bulan' : monthNames[filterMonth!],
+          isActive: filterMonth != null,
+          leadingIcon: Icons.calendar_view_month_rounded,
+          onTap: () => showEnicareOptionSheet<int?>(
+            context,
+            title: 'Filter Bulan',
+            selectedValue: filterMonth,
+            options: months
+                .map((m) => EnicarePickerOption<int?>(
                       value: m,
-                      child: Text(
-                        m == null ? 'Semua Bulan' : monthNames[m],
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: onMonthChanged,
-                ),
-              ),
-            ),
+                      label: m == null ? 'Semua Bulan' : monthNames[m],
+                    ))
+                .toList(),
+            onSelected: onMonthChanged,
           ),
-          const SizedBox(width: 8),
-          // Year Dropdown
-          Expanded(
-            flex: 1,
-            child: Container(
-              height: 38,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              decoration: BoxDecoration(
-                color: filterYear != null ? const Color(0xFFD1FAE5) : const Color(0xFFF1F5F9),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: filterYear != null ? const Color(0xFF10B981) : const Color(0xFFCBD5E1),
-                ),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<int?>(
-                  value: filterYear,
-                  isDense: true,
-                  isExpanded: true,
-                  icon: const Icon(Icons.arrow_drop_down_rounded, size: 20, color: Color(0xFF475569)),
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: filterYear != null ? const Color(0xFF065F46) : const Color(0xFF334155),
-                  ),
-                  items: years.map((y) {
-                    return DropdownMenuItem<int?>(
+        );
+
+    Widget buildYearDropdown() => EnicarePickerField(
+          displayText: filterYear == null ? 'Semua Tahun' : '$filterYear',
+          isActive: filterYear != null,
+          leadingIcon: Icons.event_note_rounded,
+          onTap: () => showEnicareOptionSheet<int?>(
+            context,
+            title: 'Filter Tahun',
+            selectedValue: filterYear,
+            options: years
+                .map((y) => EnicarePickerOption<int?>(
                       value: y,
-                      child: Text(
-                        y == null ? 'Semua Tahun' : '$y',
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: onYearChanged,
-                ),
-              ),
-            ),
+                      label: y == null ? 'Semua Tahun' : '$y',
+                    ))
+                .toList(),
+            onSelected: onYearChanged,
           ),
-          if (isFiltered) ...[
-            const SizedBox(width: 8),
-            Tooltip(
-              message: 'Reset Filter',
-              child: SizedBox(
-                width: 38,
-                height: 38,
-                child: Material(
-                  color: const Color(0xFFFEE2E2),
-                  borderRadius: BorderRadius.circular(8),
-                  child: InkWell(
+        );
+
+    Widget buildResetBtn() => Tooltip(
+          message: 'Reset Filter',
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Material(
+              color: const Color(0xFFFEE2E2),
+              borderRadius: BorderRadius.circular(8),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: onReset,
+                child: Container(
+                  decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(8),
-                    onTap: onReset,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: const Color(0xFFFCA5A5),
-                          width: 1,
-                        ),
-                      ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.restart_alt_rounded,
-                          size: 18,
-                          color: Color(0xFFEF4444),
-                        ),
-                      ),
+                    border: Border.all(
+                      color: const Color(0xFFFCA5A5),
+                      width: 1,
+                    ),
+                  ),
+                  child: const Center(
+                    child: Icon(
+                      Icons.restart_alt_rounded,
+                      size: 18,
+                      color: Color(0xFFEF4444),
                     ),
                   ),
                 ),
               ),
             ),
-          ],
-        ],
+          ),
+        );
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
+      child: isLargeText
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                buildMonthDropdown(),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(child: buildYearDropdown()),
+                    if (isFiltered) ...[
+                      const SizedBox(width: 8),
+                      buildResetBtn(),
+                    ],
+                  ],
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                const SizedBox(
+                  width: 28,
+                  height: 44,
+                  child: Center(
+                    child: Icon(Icons.filter_list_rounded, size: 20, color: Color(0xFF64748B)),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(child: buildMonthDropdown()),
+                const SizedBox(width: 8),
+                Expanded(child: buildYearDropdown()),
+                if (isFiltered) ...[
+                  const SizedBox(width: 8),
+                  buildResetBtn(),
+                ],
+              ],
+            ),
     );
   }
 }
@@ -1857,24 +1773,11 @@ class _AddJournalSheetState extends State<_AddJournalSheet> {
 
   Future<void> _pickDate() async {
     final now = DateTime.now();
-    final picked = await showDatePicker(
+    final picked = await showEnicareDatePicker(
       context: context,
       firstDate: DateTime(now.year - 1),
       lastDate: DateTime(now.year + 1),
       initialDate: _date,
-      locale: const Locale('id', 'ID'),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF10B981),
-              onPrimary: Colors.white,
-              onSurface: Color(0xFF0F172A),
-            ),
-          ),
-          child: child!,
-        );
-      },
     );
     if (picked != null) {
       final newDate = DateTime(picked.year, picked.month, picked.day);
@@ -1891,79 +1794,84 @@ class _AddJournalSheetState extends State<_AddJournalSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final bottom = MediaQuery.of(context).viewInsets.bottom;
+    final isLargeText = MediaQuery.textScalerOf(context).scale(14) > 18;
+    final dateField = InputDecorator(
+      decoration: InputDecoration(
+        labelText: 'Tanggal',
+        labelStyle: const TextStyle(fontFamily: 'Inter', color: Color(0xFF475569)),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        isDense: true,
+      ),
+      child: Text(
+        DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(_date.toLocal()),
+        style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF0F172A)),
+      ),
+    );
+    final pickButton = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48),
+      child: OutlinedButton.icon(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFF10B981),
+          side: const BorderSide(color: Color(0xFF10B981)),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        onPressed: _pickDate,
+        icon: const Icon(Icons.calendar_today_rounded, size: 18),
+        label: const Text('Pilih', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
+      ),
+    );
+
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      padding: EdgeInsets.only(bottom: bottom),
       child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFCBD5E1),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+        padding: sheetBottomPadding(context, top: 12, extra: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFCBD5E1),
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              Text(
-                _existingEntry != null ? 'Ubah Jurnal' : 'Tambah Jurnal',
-                style: const TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
-                ),
+            ),
+            Text(
+              _existingEntry != null ? 'Ubah Jurnal' : 'Tambah Jurnal',
+              style: const TextStyle(
+                fontFamily: 'Nunito',
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F172A),
               ),
-              const SizedBox(height: 16),
+            ),
+            const SizedBox(height: 16),
+            if (isLargeText) ...[
+              dateField,
+              const SizedBox(height: 10),
+              SizedBox(width: double.infinity, child: pickButton),
+            ] else
               Row(
                 children: [
-                  Expanded(
-                    child: InputDecorator(
-                      decoration: InputDecoration(
-                        labelText: 'Tanggal',
-                        labelStyle: const TextStyle(fontFamily: 'Inter', color: Color(0xFF475569)),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                        isDense: true,
-                      ),
-                      child: Text(
-                        DateFormat('EEEE, d MMMM yyyy', 'id_ID').format(_date.toLocal()),
-                        style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF0F172A)),
-                      ),
-                    ),
-                  ),
+                  Expanded(child: dateField),
                   const SizedBox(width: 10),
-                  SizedBox(
-                    height: 48,
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF10B981),
-                        side: const BorderSide(color: Color(0xFF10B981)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: _pickDate,
-                      icon: const Icon(Icons.calendar_today_rounded, size: 18),
-                      label: const Text('Pilih', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
-                    ),
-                  ),
+                  pickButton,
                 ],
               ),
               if (_existingEntry != null) ...[
@@ -2023,12 +1931,13 @@ class _AddJournalSheetState extends State<_AddJournalSheet> {
               Row(
                 children: [
                   Expanded(
-                    child: SizedBox(
-                      height: 48,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 48),
                       child: FilledButton(
                         style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFF10B981),
                           foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
                         onPressed: () {
@@ -2037,22 +1946,23 @@ class _AddJournalSheetState extends State<_AddJournalSheet> {
                             _JournalFormResult(_date, _summary.text),
                           );
                         },
-                        child: const Text('Simpan', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15)),
+                        child: const Text('Simpan', textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15)),
                       ),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: SizedBox(
-                      height: 48,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 48),
                       child: OutlinedButton(
                         style: OutlinedButton.styleFrom(
                           foregroundColor: const Color(0xFF475569),
                           side: const BorderSide(color: Color(0xFFE2E8F0)),
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
                         onPressed: () => Navigator.pop(context),
-                        child: const Text('Batal', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15)),
+                        child: const Text('Batal', textAlign: TextAlign.center, style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15)),
                       ),
                     ),
                   ),
@@ -2061,8 +1971,7 @@ class _AddJournalSheetState extends State<_AddJournalSheet> {
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 }
 
@@ -2102,7 +2011,6 @@ class _EditJournalSheetState extends State<_EditJournalSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final bottom = MediaQuery.of(context).viewInsets.bottom;
     final isReadOnly = widget.readOnly;
 
     return Container(
@@ -2110,14 +2018,12 @@ class _EditJournalSheetState extends State<_EditJournalSheet> {
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      padding: EdgeInsets.only(bottom: bottom),
       child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        padding: sheetBottomPadding(context, top: 12, extra: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
               Center(
                 child: Container(
                   width: 40,
@@ -2235,46 +2141,51 @@ class _EditJournalSheetState extends State<_EditJournalSheet> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   if (!isReadOnly) ...[
-                    SizedBox(
-                      width: double.infinity,
-                      height: 48,
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF10B981),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          elevation: 0,
-                        ),
-                        onPressed: () {
-                          Navigator.pop(
-                            context,
-                            _JournalFormResult(_date, _summary.text),
-                          );
-                        },
-                        child: const Text(
-                          'Simpan Perubahan',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 48),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF10B981),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            elevation: 0,
+                          ),
+                          onPressed: () {
+                            Navigator.pop(
+                              context,
+                              _JournalFormResult(_date, _summary.text),
+                            );
+                          },
+                          child: const Text(
+                            'Simpan Perubahan',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 15),
+                          ),
                         ),
                       ),
                     ),
                     const SizedBox(height: 10),
                   ],
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF475569),
-                        side: const BorderSide(color: Color(0xFFE2E8F0)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: () => Navigator.pop(context),
-                      child: Text(
-                        isReadOnly ? 'Tutup' : 'Batal',
-                        maxLines: 1,
-                        style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 48),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF475569),
+                          side: const BorderSide(color: Color(0xFFE2E8F0)),
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: () => Navigator.pop(context),
+                        child: Text(
+                          isReadOnly ? 'Tutup' : 'Batal',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 15),
+                        ),
                       ),
                     ),
                   ),
@@ -2283,7 +2194,6 @@ class _EditJournalSheetState extends State<_EditJournalSheet> {
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 }

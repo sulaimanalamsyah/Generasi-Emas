@@ -1,8 +1,9 @@
-// ignore_for_file: deprecated_member_use
+// ignore_for_file: deprecated_member_use, depend_on_referenced_packages
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:timezone/timezone.dart' as tz;
 import 'api_client.dart';
 import '../core/storage.dart';
 import '../app.dart';
@@ -194,6 +195,73 @@ class FcmService {
     } catch (e) {
       debugPrint("❌ Gagal disable notif: $e");
       rethrow;
+    }
+  }
+
+  static const int _kDailyReminderBaseId = 9000;
+  static const int _kMaxDailyReminderSlots = 10;
+
+  /// Schedule or cancel daily local notifications matching backend NOTIF_SCHEDULES_JSON (WIB = UTC+7).
+  Future<void> syncScheduledDailyReminders(
+    List<Map<String, dynamic>> schedules, {
+    required bool enabled,
+  }) async {
+    for (int offset = 0; offset < _kMaxDailyReminderSlots; offset++) {
+      try {
+        await _localNotifications.cancel(id: _kDailyReminderBaseId + offset);
+      } catch (_) {}
+    }
+
+    if (!enabled) return;
+
+    const androidDetails = AndroidNotificationDetails(
+      'daily_channel_id',
+      'Pengingat Harian',
+      channelDescription: 'Notifikasi rutin harian untuk Ibu & Ayah',
+      icon: '@mipmap/launcher_icon',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+    const details = NotificationDetails(android: androidDetails);
+    final nowUtc = DateTime.now().toUtc();
+
+    var idx = 0;
+    for (final s in schedules) {
+      if (idx >= _kMaxDailyReminderSlots) break;
+      if (s['enabled'] == false) continue;
+
+      final hourWib = int.tryParse('${s['hourWib'] ?? 7}') ?? 7;
+      final minuteWib = int.tryParse('${s['minuteWib'] ?? 0}') ?? 0;
+      final utcTotalMinutes = ((hourWib * 60 + minuteWib) - 7 * 60 + 1440) % 1440;
+      final utcHour = utcTotalMinutes ~/ 60;
+      final utcMinute = utcTotalMinutes % 60;
+
+      var nextUtc = DateTime.utc(
+        nowUtc.year,
+        nowUtc.month,
+        nowUtc.day,
+        utcHour,
+        utcMinute,
+      );
+      if (!nextUtc.isAfter(nowUtc)) {
+        nextUtc = nextUtc.add(const Duration(days: 1));
+      }
+
+      try {
+        await _localNotifications.zonedSchedule(
+          id: _kDailyReminderBaseId + idx,
+          title: (s['title'] ?? s['label'] ?? 'Pengingat Harian ENICare').toString(),
+          body: (s['body'] ?? 'Jangan lupa isi catatan perawatan bayi hari ini.').toString(),
+          scheduledDate: tz.TZDateTime.from(nextUtc, tz.UTC),
+          notificationDetails: details,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          matchDateTimeComponents: DateTimeComponents.time,
+          payload: (s['route'] ?? Routes.notifications).toString(),
+        );
+      } catch (e) {
+        debugPrint('⚠️ Gagal menjadwalkan pengingat lokal #$idx: $e');
+      }
+      idx++;
     }
   }
 

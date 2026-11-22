@@ -1,8 +1,10 @@
 import 'package:material_ui/material_ui.dart';
+import '../routes.dart';
 import '../services/fcm_service.dart';
 import '../services/api_client.dart';
 import '../core/storage.dart';
 import '../core/constants.dart';
+import '../widgets/common.dart';
 
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({super.key});
@@ -17,13 +19,61 @@ class _NotificationsPageState extends State<NotificationsPage> {
   bool _isLoading = true;
   bool _isToggling = false;
   List<Map<String, dynamic>> _notifications = [];
+  List<Map<String, dynamic>> _schedules = [];
   int _unreadCount = 0;
   String? _errorMessage;
+
+  static const _kNotifCacheKey = 'user_notifications_v1';
+
+  static const List<Map<String, dynamic>> _fallbackSchedules = [
+    {
+      'id': 'morning',
+      'label': 'Pengingat Pagi',
+      'hourWib': 7,
+      'minuteWib': 0,
+      'title': 'Selamat Pagi Ayah & Bunda!',
+      'body': 'Awali hari dengan mencatat asupan ASI dan perkembangan si kecil hari ini.',
+      'route': '/logbook',
+      'enabled': true,
+    },
+    {
+      'id': 'evening',
+      'label': 'Pengingat Malam',
+      'hourWib': 19,
+      'minuteWib': 0,
+      'title': 'Waktunya Refleksi Harian',
+      'body': 'Sudahkah mengisi jurnal dan melihat panduan stimulasi tumbuh kembang hari ini?',
+      'route': '/babyJournal',
+      'enabled': true,
+    },
+  ];
 
   @override
   void initState() {
     super.initState();
     _loadAll();
+  }
+
+  List<Map<String, dynamic>> _extractSchedules(dynamic raw) {
+    if (raw is List && raw.isNotEmpty) {
+      return raw.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+    }
+    return _fallbackSchedules;
+  }
+
+  void _applyNotifPayload(Map<String, dynamic> notifData, bool resolvedEnabled, List<Map<String, dynamic>> schedules) {
+    setState(() {
+      _isEnabled = resolvedEnabled;
+      _schedules = schedules;
+      if (notifData['notifications'] is List) {
+        _notifications = (notifData['notifications'] as List)
+            .whereType<Map>()
+            .map((e) => e.cast<String, dynamic>())
+            .toList();
+      }
+      _unreadCount = notifData['unreadCount'] as int? ?? 0;
+      _isLoading = false;
+    });
   }
 
   Future<void> _loadAll() async {
@@ -32,62 +82,90 @@ class _NotificationsPageState extends State<NotificationsPage> {
       _errorMessage = null;
     });
 
+    final localEnabled = await Prefs.getNotificationEnabled();
     try {
-      final enabled = await Prefs.getNotificationEnabled();
       final notifData = await _api.getNotifications();
+      final bool? serverEnabled = notifData['notificationsEnabled'] as bool?;
+      final bool resolvedEnabled = serverEnabled ?? localEnabled;
+      if (serverEnabled != null && serverEnabled != localEnabled) {
+        await Prefs.setNotificationEnabled(serverEnabled);
+      }
+
+      List<Map<String, dynamic>> schedules = _extractSchedules(notifData['schedules']);
+      if (notifData['schedules'] is! List || (notifData['schedules'] as List).isEmpty) {
+        try {
+          final fetchedSchedules = await _api.getNotificationSchedules();
+          if (fetchedSchedules.isNotEmpty) schedules = fetchedSchedules;
+        } catch (_) {}
+      }
+
+      await Prefs.setCachedJson(_kNotifCacheKey, {
+        ...notifData,
+        'schedules': schedules,
+      });
+
+      await FcmService().syncScheduledDailyReminders(schedules, enabled: resolvedEnabled);
 
       if (mounted) {
-        setState(() {
-          _isEnabled = enabled;
-          if (notifData['notifications'] is List) {
-            _notifications = (notifData['notifications'] as List)
-                .map((e) => (e as Map).cast<String, dynamic>())
-                .toList();
-          }
-          _unreadCount = notifData['unreadCount'] as int? ?? 0;
-          _isLoading = false;
-        });
+        _applyNotifPayload(notifData, resolvedEnabled, schedules);
       }
     } catch (e) {
-      if (mounted) {
-        String msg = "Gagal memuat riwayat notifikasi: $e";
-        if (e is ApiError && e.status == 0) {
-          msg = "Tidak ada koneksi internet. Mode offline.";
+      if (!mounted) return;
+      if (e is ApiError && e.status == 0) {
+        final cached = await Prefs.getCachedJson(_kNotifCacheKey);
+        if (!mounted) return;
+        if (cached is Map) {
+          final cachedMap = Map<String, dynamic>.from(cached);
+          final cachedEnabled = (cachedMap['notificationsEnabled'] as bool?) ?? localEnabled;
+          final cachedSchedules = _extractSchedules(cachedMap['schedules']);
+          _applyNotifPayload(cachedMap, cachedEnabled, cachedSchedules);
+          showAppSnackBar(
+            context,
+            message: 'Menampilkan notifikasi terakhir tersimpan (mode luring).',
+          );
+          return;
         }
-        setState(() {
-          _errorMessage = msg;
-          _isLoading = false;
-        });
       }
+      String msg = "Gagal memuat riwayat notifikasi: $e";
+      if (e is ApiError && e.status == 0) {
+        msg = "Tidak ada koneksi internet. Mode luring.";
+      }
+      setState(() {
+        _schedules = _schedules.isEmpty ? _fallbackSchedules : _schedules;
+        _isEnabled = localEnabled;
+        _errorMessage = msg;
+        _isLoading = false;
+      });
     }
   }
 
   Future<void> _toggleNotification(bool value) async {
     setState(() => _isToggling = true);
     try {
+      await _api.updateNotificationSettings(value);
       if (value) {
-        await FcmService().enableNotifications();
+        try {
+          await FcmService().enableNotifications();
+        } catch (_) {}
       } else {
-        await FcmService().disableNotifications();
+        try {
+          await FcmService().disableNotifications();
+        } catch (_) {}
       }
 
       await Prefs.setNotificationEnabled(value);
+      final activeSchedules = _schedules.isNotEmpty ? _schedules : _fallbackSchedules;
+      await FcmService().syncScheduledDailyReminders(activeSchedules, enabled: value);
 
       if (mounted) {
         setState(() {
           _isEnabled = value;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              value
-                  ? "Notifikasi pengingat harian diaktifkan"
-                  : "Notifikasi pengingat harian dinonaktifkan",
-              style: const TextStyle(fontFamily: 'Inter'),
-            ),
-            backgroundColor: value ? kPrimary : const Color(0xFF475569),
-            duration: const Duration(seconds: 2),
-          ),
+        showAppSnackBar(
+          context,
+          message: value
+              ? "Notifikasi pengingat harian diaktifkan"
+              : "Notifikasi pengingat harian dinonaktifkan",
         );
       }
     } catch (e) {
@@ -96,12 +174,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
         if (e is ApiError && e.status == 0) {
           msg = "Tidak ada koneksi internet. Gagal sinkronisasi pengaturan.";
         }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(msg, style: const TextStyle(fontFamily: 'Inter')),
-            backgroundColor: const Color(0xFFEF4444),
-          ),
-        );
+        showAppSnackBar(context, message: msg, isError: true);
       }
     } finally {
       if (mounted) setState(() => _isToggling = false);
@@ -113,6 +186,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     final notifId = item['id'] as int?;
     final isRead = item['isRead'] as bool? ?? false;
     final route = item['route'] as String?;
+    final type = item['type']?.toString();
 
     if (notifId != null && !isRead) {
       setState(() {
@@ -122,9 +196,16 @@ class _NotificationsPageState extends State<NotificationsPage> {
       _api.markNotificationAsRead(notifId);
     }
 
-    if (route != null && route.isNotEmpty) {
-      Navigator.pushNamed(context, route);
+    if (type == 'reminder' ||
+        route == Routes.babyJournal ||
+        route == '/logbook' ||
+        route == null ||
+        route.isEmpty) {
+      if (mounted) Navigator.pushNamed(context, Routes.babyJournal);
+      return;
     }
+
+    Navigator.pushNamed(context, route);
   }
 
   Future<void> _markAllRead() async {
@@ -219,29 +300,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: const Text(
-          'Notifikasi',
-          style: TextStyle(
-            fontFamily: 'Nunito',
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-            color: Color(0xFF0F172A),
-          ),
-        ),
-        centerTitle: false,
-        elevation: 0,
-        backgroundColor: const Color(0xFFF8FAFC),
-        surfaceTintColor: Colors.transparent,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
-          onPressed: () => Navigator.maybePop(context),
-          tooltip: 'Kembali',
-        ),
-        bottom: const PreferredSize(
-          preferredSize: Size.fromHeight(1),
-          child: Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
-        ),
+      appBar: enicareAppBar(
+        context,
+        title: 'Notifikasi',
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
@@ -250,7 +311,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
           ),
         ],
       ),
-      body: RefreshIndicator(
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
         onRefresh: _loadAll,
         color: kPrimary,
         child: ListView(
@@ -261,69 +324,76 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
             const SizedBox(height: 16),
 
-            // 2. SCHEDULE BREAKDOWN CARD (07:00 & 13:00 WIB)
+            // 2. DYNAMIC SCHEDULE BREAKDOWN CARD
             _buildScheduleCard(),
 
             const SizedBox(height: 24),
 
-            // 3. INBOX HEADER & ACTIONS
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const Text(
-                      "Riwayat Notifikasi",
-                      style: TextStyle(
-                        fontFamily: 'Nunito',
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF0F172A),
-                      ),
-                    ),
-                    if (_unreadCount > 0) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFD1FAE5),
-                          borderRadius: BorderRadius.circular(12),
+            // 3. INBOX HEADER & ACTIONS (Wrap prevents 14px max-font overflow)
+            SizedBox(
+              width: double.infinity,
+              child: Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        "Riwayat Notifikasi",
+                        style: TextStyle(
+                          fontFamily: 'Nunito',
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0F172A),
                         ),
-                        child: Text(
-                          "$_unreadCount baru",
-                          style: const TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF064E3B),
+                      ),
+                      if (_unreadCount > 0) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFD1FAE5),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            "$_unreadCount baru",
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF064E3B),
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                     ],
-                  ],
-                ),
-                if (_unreadCount > 0)
-                  TextButton.icon(
-                    onPressed: _markAllRead,
-                    icon: const Icon(Icons.done_all_rounded,
-                        size: 16, color: kPrimary),
-                    label: const Text(
-                      "Tandai Dibaca",
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: kPrimary,
+                  ),
+                  if (_unreadCount > 0)
+                    TextButton.icon(
+                      onPressed: _markAllRead,
+                      icon: const Icon(Icons.done_all_rounded,
+                          size: 16, color: kPrimary),
+                      label: const Text(
+                        "Tandai Semua Dibaca",
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: kPrimary,
+                        ),
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 6),
+                        minimumSize: const Size(48, 44),
                       ),
                     ),
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      minimumSize: const Size(48, 48),
-                    ),
-                  ),
-              ],
+                ],
+              ),
             ),
 
             const SizedBox(height: 12),
@@ -343,21 +413,69 @@ class _NotificationsPageState extends State<NotificationsPage> {
             const SizedBox(height: 32),
           ],
         ),
+        ),
       ),
     );
   }
 
   // --- WIDGET BUILDERS ---
 
+  String _formatScheduleTime(Map<String, dynamic> s) {
+    final h = (int.tryParse('${s['hourWib'] ?? 7}') ?? 7).toString().padLeft(2, '0');
+    final m = (int.tryParse('${s['minuteWib'] ?? 0}') ?? 0).toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
   Widget _buildMasterSwitchCard() {
+    final activeSlots = (_schedules.isNotEmpty ? _schedules : _fallbackSchedules)
+        .where((s) => s['enabled'] != false)
+        .toList();
+    final timesSummary = activeSlots.isNotEmpty
+        ? '${activeSlots.map(_formatScheduleTime).join(' & ')} WIB'
+        : 'Aktif';
+    final isLargeText = MediaQuery.textScalerOf(context).scale(15) > 19.5;
+
+    final switchControl = Switch(
+      value: _isEnabled,
+      onChanged: _isToggling ? null : _toggleNotification,
+      activeTrackColor: kPrimary,
+      activeThumbColor: Colors.white,
+      inactiveThumbColor: Colors.white,
+      inactiveTrackColor: const Color(0xFFCBD5E1),
+    );
+
+    final textBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "Pengingat Otomatis",
+          style: TextStyle(
+            fontFamily: 'Nunito',
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF0F172A),
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          _isEnabled
+              ? "Pengingat harian aktif ($timesSummary)"
+              : "Notifikasi pengingat dinonaktifkan",
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 12,
+            color: _isEnabled ? const Color(0xFF047857) : const Color(0xFF64748B),
+          ),
+        ),
+      ],
+    );
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: _isEnabled
-              ? const Color(0xFFD1FAE5)
-              : const Color(0xFFE2E8F0),
+          color: _isEnabled ? const Color(0xFFD1FAE5) : const Color(0xFFE2E8F0),
           width: 1.5,
         ),
         boxShadow: const [
@@ -373,14 +491,13 @@ class _NotificationsPageState extends State<NotificationsPage> {
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Container(
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: _isEnabled
-                      ? const Color(0xFFD1FAE5)
-                      : const Color(0xFFF1F5F9),
+                  color: _isEnabled ? const Color(0xFFD1FAE5) : const Color(0xFFF1F5F9),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
@@ -393,42 +510,21 @@ class _NotificationsPageState extends State<NotificationsPage> {
               ),
               const SizedBox(width: 14),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      "Pengingat Otomatis",
-                      style: TextStyle(
-                        fontFamily: 'Nunito',
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF0F172A),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _isEnabled
-                          ? "Pengingat harian aktif (07:00 & 13:00 WIB)"
-                          : "Notifikasi pengingat dinonaktifkan",
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 12,
-                        color: _isEnabled
-                            ? const Color(0xFF047857)
-                            : const Color(0xFF64748B),
-                      ),
-                    ),
-                  ],
-                ),
+                child: isLargeText
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          textBlock,
+                          const SizedBox(height: 8),
+                          switchControl,
+                        ],
+                      )
+                    : textBlock,
               ),
-              Switch(
-                value: _isEnabled,
-                onChanged: _isToggling ? null : _toggleNotification,
-                activeTrackColor: kPrimary,
-                activeThumbColor: Colors.white,
-                inactiveThumbColor: Colors.white,
-                inactiveTrackColor: const Color(0xFFCBD5E1),
-              ),
+              if (!isLargeText) ...[
+                const SizedBox(width: 8),
+                switchControl,
+              ],
             ],
           ),
         ),
@@ -437,6 +533,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   Widget _buildScheduleCard() {
+    final activeSlots = (_schedules.isNotEmpty ? _schedules : _fallbackSchedules)
+        .where((s) => s['enabled'] != false)
+        .toList();
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -447,38 +547,39 @@ class _NotificationsPageState extends State<NotificationsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: const [
+          const Row(
+            children: [
               Icon(Icons.schedule_rounded, size: 18, color: Color(0xFF047857)),
               SizedBox(width: 8),
-              Text(
-                "Jadwal Pengingat Harian (I-FINC)",
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF064E3B),
+              Expanded(
+                child: Text(
+                  "Jadwal Pengingat Harian (I-FINC)",
+                  style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF064E3B),
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          _buildScheduleRow(
-            time: "07:00 WIB",
-            title: "Pengingat Pagi",
-            subtitle: "Perawatan harian sesuai CO Partner",
-            icon: Icons.wb_sunny_rounded,
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Divider(color: Color(0x33064E3B), height: 1),
-          ),
-          _buildScheduleRow(
-            time: "13:00 WIB",
-            title: "Pengingat Siang",
-            subtitle: "Kunjungan siang hari & cek kondisi si kecil",
-            icon: Icons.wb_twilight_rounded,
-          ),
+          for (int i = 0; i < activeSlots.length; i++) ...[
+            if (i > 0)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Divider(color: Color(0x33064E3B), height: 1),
+              ),
+            _buildScheduleRow(
+              time: '${_formatScheduleTime(activeSlots[i])} WIB',
+              title: (activeSlots[i]['label'] ?? activeSlots[i]['title'] ?? 'Pengingat Harian').toString(),
+              subtitle: (activeSlots[i]['body'] ?? 'Lengkapi catatan & aktivitas perawatan bayi hari ini.').toString(),
+              icon: ((int.tryParse('${activeSlots[i]['hourWib'] ?? 7}') ?? 7) < 12)
+                  ? Icons.wb_sunny_rounded
+                  : Icons.nights_stay_rounded,
+            ),
+          ],
           const SizedBox(height: 10),
           Container(
             padding: const EdgeInsets.all(8),
@@ -486,15 +587,15 @@ class _NotificationsPageState extends State<NotificationsPage> {
               color: Colors.white.withValues(alpha: 0.7),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Row(
+            child: const Row(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
+              children: [
                 Icon(Icons.info_outline_rounded,
                     size: 14, color: Color(0xFF047857)),
                 SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    "Pesan push notifikasi dikirim otomatis setiap hari khusus untuk Ibu dan Ayah.",
+                    "Pengingat otomatis dijadwalkan setiap hari untuk Ibu dan Ayah.",
                     style: TextStyle(
                       fontFamily: 'Inter',
                       fontSize: 11,
@@ -517,6 +618,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     required IconData icon,
   }) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -524,14 +626,21 @@ class _NotificationsPageState extends State<NotificationsPage> {
             color: const Color(0xFF047857),
             borderRadius: BorderRadius.circular(6),
           ),
-          child: Text(
-            time,
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 12, color: Colors.white),
+              const SizedBox(width: 4),
+              Text(
+                time,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(width: 12),
@@ -665,37 +774,43 @@ class _NotificationsPageState extends State<NotificationsPage> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            _formatTimestamp(firedAt),
-                            style: const TextStyle(
-                              fontFamily: 'Inter',
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF94A3B8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: Wrap(
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: [
+                            Text(
+                              _formatTimestamp(firedAt),
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: Color(0xFF94A3B8),
+                              ),
                             ),
-                          ),
-                          if (route != null && route.isNotEmpty)
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: const [
-                                Text(
-                                  "Buka",
-                                  style: TextStyle(
-                                    fontFamily: 'Inter',
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: kPrimary,
+                            if ((route != null && route.isNotEmpty) || item['type']?.toString() == 'reminder')
+                              const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    "Buka",
+                                    style: TextStyle(
+                                      fontFamily: 'Inter',
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: kPrimary,
+                                    ),
                                   ),
-                                ),
-                                SizedBox(width: 2),
-                                Icon(Icons.chevron_right_rounded,
-                                    size: 14, color: kPrimary),
-                              ],
-                            ),
-                        ],
+                                  SizedBox(width: 2),
+                                  Icon(Icons.chevron_right_rounded,
+                                      size: 14, color: kPrimary),
+                                ],
+                              ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -739,7 +854,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
           ),
           const SizedBox(height: 6),
           const Text(
-            "Pengingat harian pukul 07:00 dan 13:00 WIB serta pengumuman penting akan tersimpan di sini.",
+            "Pengingat harian sesuai jadwal aktif serta pengumuman penting akan tersimpan di sini.",
             textAlign: TextAlign.center,
             style: TextStyle(
               fontFamily: 'Inter',

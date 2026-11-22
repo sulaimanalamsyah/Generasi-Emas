@@ -1,7 +1,9 @@
 import 'package:material_ui/material_ui.dart';
+import '../core/storage.dart';
 import '../core/youtube_helper.dart';
 import '../routes.dart';
 import '../services/api_client.dart';
+import '../widgets/common.dart';
 import 'video_detail_page.dart';
 
 class VideoPage extends StatefulWidget {
@@ -35,6 +37,8 @@ class _VideoPageState extends State<VideoPage> {
     super.dispose();
   }
 
+  static const _kVideosCacheKey = 'content_video_mother_v1';
+
   Future<void> _fetchModules() async {
     setState(() {
       _isLoading = true;
@@ -45,6 +49,7 @@ class _VideoPageState extends State<VideoPage> {
     try {
       // Fetch video content for MOTHER audience
       final data = await _api.getContent('VIDEO', 'MOTHER');
+      await Prefs.setCachedJson(_kVideosCacheKey, data);
       if (mounted) {
         setState(() {
           _allModules = data;
@@ -52,6 +57,21 @@ class _VideoPageState extends State<VideoPage> {
         });
       }
     } catch (e) {
+      if (e is ApiError && e.status == 0) {
+        final cached = await Prefs.getCachedJson(_kVideosCacheKey);
+        if (mounted && cached is List) {
+          setState(() {
+            _allModules = cached;
+            _isOffline = false;
+            _isLoading = false;
+          });
+          showAppSnackBar(
+            context,
+            message: 'Menampilkan video tersimpan (mode luring).',
+          );
+          return;
+        }
+      }
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -101,6 +121,7 @@ class _VideoPageState extends State<VideoPage> {
       if (matchedItems.isNotEmpty || (query.isEmpty && rawItems.isEmpty)) {
         final filteredModule = Map<String, dynamic>.from(module);
         filteredModule['items'] = matchedItems;
+        filteredModule['allItems'] = rawItems;
         results.add(filteredModule);
       }
     }
@@ -109,6 +130,7 @@ class _VideoPageState extends State<VideoPage> {
   }
 
   void _openVideoDetail({
+    String? itemId,
     required String title,
     required String url,
     String? description,
@@ -123,6 +145,7 @@ class _VideoPageState extends State<VideoPage> {
       context,
       Routes.videoDetail,
       arguments: VideoDetailArguments(
+        itemId: itemId,
         title: title,
         url: url,
         description: description,
@@ -136,24 +159,9 @@ class _VideoPageState extends State<VideoPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
-          tooltip: 'Kembali',
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'Video Edukasi',
-          style: TextStyle(
-            color: Color(0xFF0F172A),
-            fontWeight: FontWeight.w700,
-            fontSize: 18,
-            fontFamily: 'Nunito',
-          ),
-        ),
+      appBar: enicareAppBar(
+        context,
+        title: 'Video Edukasi',
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
@@ -163,7 +171,7 @@ class _VideoPageState extends State<VideoPage> {
           ),
         ],
       ),
-      body: _buildBody(),
+      body: SafeArea(top: false, child: _buildBody()),
     );
   }
 
@@ -398,6 +406,7 @@ class _VideoPageState extends State<VideoPage> {
               final mTitle = (module['title'] ?? 'Modul Edukasi').toString();
               final mDesc = module['description'] as String?;
               final items = (module['items'] as List?) ?? [];
+              final allItems = (module['allItems'] as List?) ?? items;
 
               return RepaintBoundary(
                 child: Container(
@@ -504,11 +513,12 @@ class _VideoPageState extends State<VideoPage> {
 
                           return InkWell(
                             onTap: () => _openVideoDetail(
+                              itemId: item['id']?.toString(),
                               title: itemTitle,
                               url: itemUrl,
                               description: itemDesc,
                               moduleTitle: mTitle,
-                              allModuleItems: items,
+                              allModuleItems: allItems,
                             ),
                             borderRadius: idx == items.length - 1
                                 ? const BorderRadius.vertical(bottom: Radius.circular(16))

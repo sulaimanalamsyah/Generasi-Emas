@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import '../../services/api_client.dart';
+import '../../widgets/common.dart';
 
 class NurseAssignPatientPage extends StatefulWidget {
   const NurseAssignPatientPage({super.key});
@@ -34,49 +35,12 @@ class _NurseAssignPatientPageState extends State<NurseAssignPatientPage> {
     super.dispose();
   }
 
-  // Helper Alert Dialog with styled design
   Future<void> _showResultDialog(String title, String message, bool isSuccess) async {
-    return showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(
-              isSuccess ? Icons.check_circle_outline : Icons.error_outline,
-              color: isSuccess ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontWeight: FontWeight.w700,
-                  color: isSuccess ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          message,
-          style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF0F172A)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text(
-              "OK",
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF10B981),
-              ),
-            ),
-          ),
-        ],
-      ),
+    return showAppInfoDialog(
+      context,
+      title: title,
+      message: message,
+      isError: !isSuccess,
     );
   }
 
@@ -167,15 +131,12 @@ class _NurseAssignPatientPageState extends State<NurseAssignPatientPage> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
-        return Padding(
-          padding: MediaQuery.of(ctx).viewInsets,
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+        return SingleChildScrollView(
+          padding: sheetBottomPadding(ctx, horizontal: 24, top: 18, extra: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
                   // Bottom Sheet Handle
                   Center(
                     child: Container(
@@ -329,12 +290,13 @@ class _NurseAssignPatientPageState extends State<NurseAssignPatientPage> {
                   Row(
                     children: [
                       Expanded(
-                        child: SizedBox(
-                          height: 48,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 48),
                           child: OutlinedButton(
                             style: OutlinedButton.styleFrom(
                               foregroundColor: const Color(0xFF475569),
                               side: const BorderSide(color: Color(0xFFE2E8F0)),
+                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -342,6 +304,7 @@ class _NurseAssignPatientPageState extends State<NurseAssignPatientPage> {
                             onPressed: () => Navigator.pop(ctx),
                             child: const Text(
                               'Batal',
+                              textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontFamily: 'Inter',
                                 fontSize: 15,
@@ -353,12 +316,13 @@ class _NurseAssignPatientPageState extends State<NurseAssignPatientPage> {
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: SizedBox(
-                          height: 48,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 48),
                           child: FilledButton(
                             style: FilledButton.styleFrom(
                               backgroundColor: const Color(0xFF10B981),
                               foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -371,6 +335,7 @@ class _NurseAssignPatientPageState extends State<NurseAssignPatientPage> {
                                   },
                             child: const Text(
                               'Assign Pasien',
+                              textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontFamily: 'Inter',
                                 fontSize: 15,
@@ -384,9 +349,7 @@ class _NurseAssignPatientPageState extends State<NurseAssignPatientPage> {
                   ),
                 ],
               ),
-            ),
-          ),
-        );
+            );
       },
     );
   }
@@ -805,23 +768,9 @@ class _NurseAssignPatientPageState extends State<NurseAssignPatientPage> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0.5,
-        surfaceTintColor: Colors.transparent,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'Assign Pasien',
-          style: TextStyle(
-            fontFamily: 'Nunito',
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF0F172A),
-          ),
-        ),
+      appBar: enicareAppBar(
+        context,
+        title: 'Assign Pasien',
         actions: [
           IconButton(
             tooltip: 'Perbarui Data',
@@ -831,6 +780,7 @@ class _NurseAssignPatientPageState extends State<NurseAssignPatientPage> {
         ],
       ),
       body: SafeArea(
+        top: false,
         child: Column(
           children: [
             // Search Input Container

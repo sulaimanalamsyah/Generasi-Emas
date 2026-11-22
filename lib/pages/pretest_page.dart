@@ -2,27 +2,11 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import '../services/api_client.dart';
 import '../core/storage.dart';
+import '../core/date_formatter.dart';
 import '../routes.dart';
 import '../widgets/common.dart';
 import '../widgets/in_app_viewer_page.dart';
 import '../widgets/loading_overlay.dart';
-
-String _fmtDate(dynamic submittedAt) {
-  if (submittedAt == null) return '-';
-  try {
-    final s = submittedAt.toString();
-    final dt = DateTime.tryParse(s)?.toLocal();
-    if (dt == null) return s;
-    final y = dt.year.toString().padLeft(4, '0');
-    final m = dt.month.toString().padLeft(2, '0');
-    final d = dt.day.toString().padLeft(2, '0');
-    final hh = dt.hour.toString().padLeft(2, '0');
-    final mm = dt.minute.toString().padLeft(2, '0');
-    return '$d/$m/$y $hh:$mm';
-  } catch (_) {
-    return submittedAt.toString();
-  }
-}
 
 class PretestPage extends StatefulWidget {
   const PretestPage({super.key});
@@ -37,9 +21,12 @@ class _PretestPageState extends State<PretestPage> {
   bool loading = true;
   bool isFather = false;
   Map<String, dynamic>? pretestItem;
+  Map<String, dynamic>? _legacyCoItem;
+  Map<String, dynamic>? _legacyPssItem;
   bool pretestAck = false;
 
   String _pretestUrl = '';
+  String _pretestPrefix = 'GFORM_PRETEST';
 
   @override
   void initState() {
@@ -47,71 +34,119 @@ class _PretestPageState extends State<PretestPage> {
     _loadLinksAndData();
   }
 
-  // Load Form Link (GFORM_PRETEST_LINK with fallback)
+  static const _kScoresCacheKey = 'patient_form_scores_v1';
+
+  // Load Form Link (always refresh online, fallback to cache offline)
   Future<void> _loadLinksAndData() async {
     var links = await Prefs.getFormLinks();
 
-    if (links.isEmpty ||
-        (!links.containsKey('GFORM_PRETEST_LINK') &&
-         !links.containsKey('GFORM_CO_PARTNER_LINK') &&
-         !links.containsKey('GFORM_PRETEST_MOTHER_LINK'))) {
-      debugPrint("⚠️ UI Pretest: Fetch API...");
-      try {
-        final apiConfig = await _api.getFormConfig();
-        await Prefs.setFormLinks(apiConfig);
-        links = apiConfig.map((k, v) => MapEntry(k, v.toString()));
-      } catch (e) {
-        debugPrint("❌ Gagal fetch config: $e");
-      }
+    try {
+      final apiConfig = await _api.getFormConfig();
+      await Prefs.setFormLinks(apiConfig);
+      links = apiConfig.map((k, v) => MapEntry(k, v.toString()));
+    } catch (e) {
+      debugPrint("⚠️ Pretest menggunakan cache tautan: $e");
+    }
+
+    String chosenUrl = '';
+    String chosenPrefix = 'GFORM_PRETEST';
+    if ((links['GFORM_PRETEST_LINK'] ?? '').trim().isNotEmpty) {
+      chosenUrl = links['GFORM_PRETEST_LINK']!.trim();
+      chosenPrefix = 'GFORM_PRETEST';
+    } else if ((links['GFORM_CO_PARTNER_LINK'] ?? '').trim().isNotEmpty) {
+      chosenUrl = links['GFORM_CO_PARTNER_LINK']!.trim();
+      chosenPrefix = 'GFORM_CO_PARTNER';
+    } else if ((links['GFORM_PRETEST_MOTHER_LINK'] ?? '').trim().isNotEmpty) {
+      chosenUrl = links['GFORM_PRETEST_MOTHER_LINK']!.trim();
+      chosenPrefix = 'GFORM_PRETEST_MOTHER';
     }
 
     if (mounted) {
       setState(() {
-        _pretestUrl = (links['GFORM_PRETEST_LINK'] ??
-                       links['GFORM_CO_PARTNER_LINK'] ??
-                       links['GFORM_PRETEST_MOTHER_LINK'] ??
-                       '').trim();
+        _pretestUrl = chosenUrl;
+        _pretestPrefix = chosenPrefix;
       });
     }
-    _bootstrap();
+    await _bootstrap();
+  }
+
+  Future<void> _syncAndRefresh() async {
+    try {
+      await _api.syncMyFormScore(prefix: _pretestPrefix);
+    } catch (_) {}
+    await _loadLinksAndData();
+  }
+
+  void _applyScoreItems(List items, {required bool isFatherRole, required bool ack}) {
+    Map<String, dynamic>? pick(String k) {
+      for (final it in items) {
+        if (it is Map) {
+          final t = (it['kind'] ?? it['type'] as String?)?.toUpperCase();
+          if (t == k) {
+            return Map<String, dynamic>.from(it);
+          }
+        }
+      }
+      return null;
+    }
+
+    num? numScore(Map<String, dynamic>? m) =>
+        m == null ? null : num.tryParse('${m['score'] ?? ''}');
+
+    final pre = pick('PRETEST');
+    final co = pick('CO_PARTNER');
+    final pss = pick('PSS_NICU');
+
+    // Avoid surfacing a false `0` PRETEST row when legacy CO_PARTNER / PSS_NICU holds a non-zero score
+    final preScore = numScore(pre);
+    Map<String, dynamic>? primary = pre;
+    if (primary == null || (preScore == 0 && ((numScore(co) ?? 0) > 0 || (numScore(pss) ?? 0) > 0))) {
+      primary = ((numScore(co) ?? 0) > 0 ? co : null) ??
+          ((numScore(pss) ?? 0) > 0 ? pss : null) ??
+          pre ??
+          co ??
+          pss;
+    }
+
+    if (mounted) {
+      setState(() {
+        isFather = isFatherRole;
+        pretestItem = primary;
+        _legacyCoItem = co;
+        _legacyPssItem = pss;
+        pretestAck = ack;
+        loading = false;
+      });
+    }
   }
 
   Future<void> _bootstrap() async {
+    final role = await Prefs.getRole();
+    final ack = await Prefs.getBool('pretest_ack') ?? false;
+    final isFatherRole = (role == 'father');
+
     try {
-      final role = await Prefs.getRole();
-      final ack = await Prefs.getBool('pretest_ack') ?? false;
-
       final dynamic response = await _api.getMyFormScores();
-
       final List items = (response is List)
           ? response
           : (response is Map ? (response['items'] as List? ?? []) : []);
-
-      Map<String, dynamic>? pick(String k) {
-        for (final it in items) {
-          if (it is Map) {
-            final t = (it['kind'] ?? it['type'] as String?)?.toUpperCase();
-            if (t == k) {
-              return Map<String, dynamic>.from(it);
-            }
-          }
+      await Prefs.setCachedJson(_kScoresCacheKey, items);
+      _applyScoreItems(items, isFatherRole: isFatherRole, ack: ack);
+    } catch (e) {
+      if (e is ApiError && e.status == 0) {
+        final cached = await Prefs.getCachedJson(_kScoresCacheKey);
+        if (cached is List) {
+          _applyScoreItems(cached, isFatherRole: isFatherRole, ack: ack);
+          return;
         }
-        return null;
       }
-
-      // Match PRETEST first, with fallback to legacy CO_PARTNER or PSS_NICU
-      final foundItem = pick('PRETEST') ?? pick('CO_PARTNER') ?? pick('PSS_NICU');
-
       if (mounted) {
         setState(() {
-          isFather = (role == 'father');
-          pretestItem = foundItem;
+          isFather = isFatherRole;
           pretestAck = ack;
           loading = false;
         });
       }
-    } catch (_) {
-      if (mounted) setState(() => loading = false);
     }
   }
 
@@ -128,43 +163,17 @@ class _PretestPageState extends State<PretestPage> {
 
   void _handleOpenForm(String title, String url) {
     if (url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text(
-            "Link form belum tersedia.",
-            style: TextStyle(fontFamily: 'Inter'),
-          ),
-          backgroundColor: const Color(0xFFEF4444),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
+      showAppSnackBar(context, message: "Tautan formulir belum tersedia.", isError: true);
       return;
     }
 
     if (isFather) {
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text(
-            'Info untuk Ayah',
-            style: TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-          ),
-          content: const Text(
-            'Pengisian dilakukan oleh Ibu. Ayah hanya sebagai pemantau.',
-            style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF334155)),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text(
-                'Oke',
-                style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
-              ),
-            )
-          ],
-        ),
+      showAppInfoDialog(
+        context,
+        title: 'Info untuk Ayah',
+        message: 'Pengisian dilakukan oleh Ibu. Ayah hanya sebagai pemantau.',
+        variant: InfoDialogVariant.info,
+        buttonLabel: 'Oke',
       );
       return;
     }
@@ -174,7 +183,9 @@ class _PretestPageState extends State<PretestPage> {
       MaterialPageRoute(
         builder: (_) => InAppViewerPage(title: title, url: url),
       ),
-    ).then((_) => _bootstrap());
+    ).then((_) async {
+      await _syncAndRefresh();
+    });
   }
 
   Widget _card({
@@ -185,6 +196,39 @@ class _PretestPageState extends State<PretestPage> {
     final score = item?['score'];
     final submittedAt = item?['submittedAt'] ?? item?['doneAt'];
     final isDone = (score != null) || (submittedAt != null);
+    final hasLegacyCo = _legacyCoItem != null && _legacyCoItem != item && _legacyCoItem!['score'] != null;
+    final hasLegacyPss = _legacyPssItem != null && _legacyPssItem != item && _legacyPssItem!['score'] != null;
+
+    final badge = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: isDone ? const Color(0xFFD1FAE5) : const Color(0xFFFEF3C7),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: isDone ? const Color(0xFFA7F3D0) : const Color(0xFFFDE68A),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isDone ? Icons.check_circle_rounded : Icons.pending_actions_rounded,
+            size: 14,
+            color: isDone ? const Color(0xFF064E3B) : const Color(0xFF78350F),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            isDone ? 'Selesai' : 'Belum',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              color: isDone ? const Color(0xFF064E3B) : const Color(0xFF78350F),
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
 
     return Container(
       decoration: BoxDecoration(
@@ -222,58 +266,36 @@ class _PretestPageState extends State<PretestPage> {
                 ),
                 const SizedBox(width: 14),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontFamily: 'Nunito',
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF0F172A),
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: const TextStyle(
+                              fontFamily: 'Nunito',
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Kuesioner evaluasi awal sebelum intervensi',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 12,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 2),
-                      const Text(
-                        'Kuesioner evaluasi awal sebelum intervensi',
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 12,
-                          color: Color(0xFF64748B),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: isDone ? const Color(0xFFD1FAE5) : const Color(0xFFFEF3C7),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: isDone ? const Color(0xFFA7F3D0) : const Color(0xFFFDE68A),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        isDone ? Icons.check_circle_rounded : Icons.pending_actions_rounded,
-                        size: 14,
-                        color: isDone ? const Color(0xFF064E3B) : const Color(0xFF78350F),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        isDone ? 'Selesai' : 'Belum',
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          color: isDone ? const Color(0xFF064E3B) : const Color(0xFF78350F),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12,
-                        ),
-                      ),
+                      badge,
                     ],
                   ),
                 ),
@@ -283,73 +305,120 @@ class _PretestPageState extends State<PretestPage> {
             const Divider(height: 1, color: Color(0xFFF1F5F9)),
             const SizedBox(height: 14),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.score_rounded, size: 18, color: Color(0xFF64748B)),
-                const SizedBox(width: 8),
-                const Text(
-                  'Skor Pre-Test: ',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    color: Color(0xFF64748B),
-                  ),
+                const Padding(
+                  padding: EdgeInsets.only(top: 2),
+                  child: Icon(Icons.score_rounded, size: 18, color: Color(0xFF64748B)),
                 ),
-                Text(
-                  '${score ?? '-'}',
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF0F172A),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Wrap(
+                    spacing: 4,
+                    runSpacing: 2,
+                    children: [
+                      const Text(
+                        'Skor Pre-Test:',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                      Text(
+                        AppDateFormatter.score(score),
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
+            if (hasLegacyCo || hasLegacyPss) ...[
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  if (hasLegacyCo)
+                    Text(
+                      'CO Partner: ${AppDateFormatter.score(_legacyCoItem!['score'])}',
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF475569)),
+                    ),
+                  if (hasLegacyPss)
+                    Text(
+                      'PSS:NICU: ${AppDateFormatter.score(_legacyPssItem!['score'])}',
+                      style: const TextStyle(fontFamily: 'Inter', fontSize: 12, color: Color(0xFF475569)),
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: 6),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.calendar_today_rounded, size: 18, color: Color(0xFF64748B)),
-                const SizedBox(width: 8),
-                const Text(
-                  'Tanggal dikerjakan: ',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    color: Color(0xFF64748B),
-                  ),
+                const Padding(
+                  padding: EdgeInsets.only(top: 2),
+                  child: Icon(Icons.calendar_today_rounded, size: 18, color: Color(0xFF64748B)),
                 ),
-                Text(
-                  _fmtDate(submittedAt),
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF334155),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Wrap(
+                    spacing: 4,
+                    runSpacing: 2,
+                    children: [
+                      const Text(
+                        'Tanggal dikerjakan:',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                      Text(
+                        AppDateFormatter.dateTime(submittedAt),
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF334155),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton.icon(
-                onPressed: () => _handleOpenForm(title, url),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981),
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 48),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _handleOpenForm(title, url),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                ),
-                icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                label: const Text(
-                  'Buka Form Pre-Test',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                  icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                  label: const Text(
+                    'Buka Formulir Pre-Test',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ),
@@ -370,13 +439,15 @@ class _PretestPageState extends State<PretestPage> {
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: evaluationAppBar(
         context: context,
-        title: 'Pre Test',
-        onRefresh: _bootstrap,
+        title: 'Pre-Test',
+        onRefresh: _syncAndRefresh,
       ),
-      body: loading
-          ? const LoadingOverlay(message: "Memuat Status Pretest...")
-          : RefreshIndicator(
-              onRefresh: _bootstrap,
+      body: SafeArea(
+        top: false,
+        child: loading
+            ? const LoadingOverlay(message: "Memuat Status Pre-Test...")
+            : RefreshIndicator(
+              onRefresh: _syncAndRefresh,
               color: const Color(0xFF10B981),
               child: ListView(
                 padding: const EdgeInsets.all(20),
@@ -473,21 +544,23 @@ class _PretestPageState extends State<PretestPage> {
                   const SizedBox(height: 24),
 
                   if (showButtonContinue)
-                    SizedBox(
-                      height: 48,
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 48),
                       child: ElevatedButton.icon(
                         onPressed: _markDoneAndGoHome,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF10B981),
                           foregroundColor: Colors.white,
                           elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
                         icon: const Icon(Icons.check_circle_rounded, size: 20),
                         label: const Text(
-                          'Silakan kembali ke beranda.',
+                          'Kembali ke Beranda',
+                          textAlign: TextAlign.center,
                           style: TextStyle(
                             fontFamily: 'Inter',
                             fontSize: 15,
@@ -526,6 +599,7 @@ class _PretestPageState extends State<PretestPage> {
                 ],
               ),
             ),
+      ),
     );
   }
 }

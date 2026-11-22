@@ -8,6 +8,8 @@ class GrowthChart extends StatefulWidget {
   final Map<String, dynamic> whoCurves;
   final GrowthMetricType activeMetric;
   final ValueChanged<GrowthMetricType> onMetricChanged;
+  final int? birthWeightGrams;
+  final int? gestationalWeeks;
 
   const GrowthChart({
     super.key,
@@ -15,6 +17,8 @@ class GrowthChart extends StatefulWidget {
     required this.whoCurves,
     required this.activeMetric,
     required this.onMetricChanged,
+    this.birthWeightGrams,
+    this.gestationalWeeks,
   });
 
   @override
@@ -26,6 +30,10 @@ class _GrowthChartState extends State<GrowthChart> {
 
   @override
   Widget build(BuildContext context) {
+    final bool showPretermDisclaimer =
+        (widget.gestationalWeeks != null && widget.gestationalWeeks! < 37) ||
+        (widget.birthWeightGrams != null && widget.birthWeightGrams! < 2500);
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -43,34 +51,71 @@ class _GrowthChartState extends State<GrowthChart> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Metric Tab Switcher (Touch Target >= 48dp)
+          // Metric Tab Switcher (Horizontally scrollable, Touch Target >= 48dp)
           Container(
+            width: double.infinity,
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
               color: const Color(0xFFF1F5F9),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Row(
-              children: [
-                _buildMetricTab(
-                  label: 'Berat (kg)',
-                  type: GrowthMetricType.weight,
-                  icon: Icons.scale_rounded,
-                ),
-                _buildMetricTab(
-                  label: 'Panjang (cm)',
-                  type: GrowthMetricType.length,
-                  icon: Icons.straighten_rounded,
-                ),
-                _buildMetricTab(
-                  label: 'Lingkar K (cm)',
-                  type: GrowthMetricType.head,
-                  icon: Icons.face_rounded,
-                ),
-              ],
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildMetricTab(
+                    label: 'Berat (kg)',
+                    type: GrowthMetricType.weight,
+                    icon: Icons.scale_rounded,
+                  ),
+                  const SizedBox(width: 4),
+                  _buildMetricTab(
+                    label: 'Panjang (cm)',
+                    type: GrowthMetricType.length,
+                    icon: Icons.straighten_rounded,
+                  ),
+                  const SizedBox(width: 4),
+                  _buildMetricTab(
+                    label: 'Lingkar Kepala (cm)',
+                    type: GrowthMetricType.head,
+                    icon: Icons.face_rounded,
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 16),
+
+          if (showPretermDisclaimer) ...[
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 14),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0F9FF),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFBAE6FD)),
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline_rounded, size: 16, color: Color(0xFF0284C7)),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Acuan standar WHO berlaku untuk usia 0–24 bulan. Untuk bayi prematur (<37 minggu) atau BBLR (<2500 g), interpretasi klinis mengikuti usia koreksi bersama tenaga kesehatan.',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 11.5,
+                        height: 1.35,
+                        color: Color(0xFF0369A1),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
 
           // Legend Indicators
           Wrap(
@@ -78,6 +123,12 @@ class _GrowthChartState extends State<GrowthChart> {
             runSpacing: 6,
             children: [
               _buildLegendPill('Titik Ukur Bayi', const Color(0xFF10B981), isCircle: true),
+              if (widget.activeMetric == GrowthMetricType.weight && widget.birthWeightGrams != null)
+                _buildLegendPill(
+                  'Berat Lahir (${WeightFormatter.formatGrams(widget.birthWeightGrams)})',
+                  const Color(0xFF0EA5E9),
+                  isDiamond: true,
+                ),
               _buildLegendPill('Median WHO', const Color(0xFF10B981)),
               _buildLegendPill('+2 SD', const Color(0xFF0EA5E9)),
               _buildLegendPill('-2 SD (Batas Bawah)', const Color(0xFFF59E0B)),
@@ -91,20 +142,23 @@ class _GrowthChartState extends State<GrowthChart> {
             const SizedBox(height: 12),
           ],
 
-          // Chart Canvas
-          SizedBox(
-            height: 220,
-            width: double.infinity,
-            child: GestureDetector(
-              onTapUp: (details) {
-                _handleChartTap(details.localPosition);
-              },
-              child: CustomPaint(
-                painter: _GrowthChartPainter(
-                  measurements: widget.measurements,
-                  whoCurves: widget.whoCurves,
-                  metricType: widget.activeMetric,
-                  selectedPointIndex: _selectedPointIndex,
+          // Chart Canvas (isolated repaint boundary for 60fps scrolling)
+          RepaintBoundary(
+            child: SizedBox(
+              height: 220,
+              width: double.infinity,
+              child: GestureDetector(
+                onTapUp: (details) {
+                  _handleChartTap(details.localPosition);
+                },
+                child: CustomPaint(
+                  painter: _GrowthChartPainter(
+                    measurements: widget.measurements,
+                    whoCurves: widget.whoCurves,
+                    metricType: widget.activeMetric,
+                    selectedPointIndex: _selectedPointIndex,
+                    birthWeightGrams: widget.birthWeightGrams,
+                  ),
                 ),
               ),
             ),
@@ -134,67 +188,82 @@ class _GrowthChartState extends State<GrowthChart> {
     required IconData icon,
   }) {
     final bool isSelected = widget.activeMetric == type;
-    return Expanded(
-      child: SizedBox(
-        height: 44,
-        child: InkWell(
-          onTap: () {
-            setState(() => _selectedPointIndex = null);
-            widget.onMetricChanged(type);
-          },
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-            decoration: BoxDecoration(
-              color: isSelected ? Colors.white : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
-              boxShadow: isSelected
-                  ? const [
-                      BoxShadow(
-                        color: Color(0x0F0F172A),
-                        blurRadius: 4,
-                        offset: Offset(0, 1),
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  size: 16,
-                  color: isSelected ? const Color(0xFF10B981) : const Color(0xFF64748B),
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48, minWidth: 108),
+      child: InkWell(
+        onTap: () {
+          setState(() => _selectedPointIndex = null);
+          widget.onMetricChanged(type);
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: isSelected
+                ? const [
+                    BoxShadow(
+                      color: Color(0x0F0F172A),
+                      blurRadius: 4,
+                      offset: Offset(0, 1),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: isSelected ? const Color(0xFF10B981) : const Color(0xFF64748B),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  color: isSelected ? const Color(0xFF0F172A) : const Color(0xFF64748B),
                 ),
-                const SizedBox(width: 4),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                    color: isSelected ? const Color(0xFF0F172A) : const Color(0xFF64748B),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildLegendPill(String label, Color color, {bool isCircle = false}) {
+  Widget _buildLegendPill(
+    String label,
+    Color color, {
+    bool isCircle = false,
+    bool isDiamond = false,
+  }) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: isCircle ? 8 : 14,
-          height: isCircle ? 8 : 3,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(isCircle ? 999 : 2),
+        if (isDiamond)
+          Transform.rotate(
+            angle: 0.785398,
+            child: Container(
+              width: 8,
+              height: 8,
+              color: color,
+            ),
+          )
+        else
+          Container(
+            width: isCircle ? 8 : 14,
+            height: isCircle ? 8 : 3,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(isCircle ? 999 : 2),
+            ),
           ),
-        ),
         const SizedBox(width: 6),
         Text(
           label,
@@ -298,12 +367,14 @@ class _GrowthChartPainter extends CustomPainter {
   final Map<String, dynamic> whoCurves;
   final GrowthMetricType metricType;
   final int? selectedPointIndex;
+  final int? birthWeightGrams;
 
   _GrowthChartPainter({
     required this.measurements,
     required this.whoCurves,
     required this.metricType,
     this.selectedPointIndex,
+    this.birthWeightGrams,
   });
 
   @override
@@ -324,9 +395,9 @@ class _GrowthChartPainter extends CustomPainter {
     int ySteps = 5;
 
     if (metricType == GrowthMetricType.weight) {
-      minY = 2.0;
+      minY = 0.0;
       maxY = 16.0;
-      ySteps = 7;
+      ySteps = 8;
     } else if (metricType == GrowthMetricType.length) {
       minY = 40.0;
       maxY = 95.0;
@@ -522,6 +593,32 @@ class _GrowthChartPainter extends CustomPainter {
         canvas.drawCircle(pt, isSelected ? 3 : 2, dotInnerPaint);
       }
     }
+
+    // Draw baseline Berat Saat Lahir (diamond marker at x = 0 months) for weight metric
+    if (metricType == GrowthMetricType.weight && birthWeightGrams != null && birthWeightGrams! > 0) {
+      final bwKg = (birthWeightGrams! / 1000.0).clamp(minY, maxY);
+      final bwCenter = Offset(toX(0.0), toY(bwKg));
+      const r = 6.0;
+      final diamond = Path()
+        ..moveTo(bwCenter.dx, bwCenter.dy - r)
+        ..lineTo(bwCenter.dx + r, bwCenter.dy)
+        ..lineTo(bwCenter.dx, bwCenter.dy + r)
+        ..lineTo(bwCenter.dx - r, bwCenter.dy)
+        ..close();
+      canvas.drawPath(
+        diamond,
+        Paint()
+          ..color = const Color(0xFF0EA5E9)
+          ..style = PaintingStyle.fill,
+      );
+      canvas.drawPath(
+        diamond,
+        Paint()
+          ..color = Colors.white
+          ..strokeWidth = 1.5
+          ..style = PaintingStyle.stroke,
+      );
+    }
   }
 
   @override
@@ -529,6 +626,7 @@ class _GrowthChartPainter extends CustomPainter {
     return oldDelegate.measurements != measurements ||
         oldDelegate.metricType != metricType ||
         oldDelegate.selectedPointIndex != selectedPointIndex ||
-        oldDelegate.whoCurves != whoCurves;
+        oldDelegate.whoCurves != whoCurves ||
+        oldDelegate.birthWeightGrams != birthWeightGrams;
   }
 }

@@ -6,10 +6,12 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../core/youtube_helper.dart';
 import '../routes.dart';
+import '../widgets/common.dart';
 import 'module_detail_page.dart';
 
 /// Arguments model for navigating to VideoDetailPage
 class VideoDetailArguments {
+  final String? itemId;
   final String title;
   final String url;
   final String? description;
@@ -17,6 +19,7 @@ class VideoDetailArguments {
   final List<Map<String, dynamic>> relatedVideos;
 
   const VideoDetailArguments({
+    this.itemId,
     required this.title,
     required this.url,
     this.description,
@@ -44,6 +47,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
   Timer? _loadingTimeout;
   bool _isCustomWidgetShown = false;
 
+  String? _currentItemId;
   late String _currentTitle;
   late String _currentUrl;
   late String? _currentDescription;
@@ -53,6 +57,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
   @override
   void initState() {
     super.initState();
+    _currentItemId = widget.args.itemId;
     _currentTitle = widget.args.title;
     _currentUrl = widget.args.url;
     _currentDescription = widget.args.description;
@@ -144,8 +149,10 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                   },
                   child: Scaffold(
                     backgroundColor: Colors.black,
-                    body: SizedBox.expand(
-                      child: widget,
+                    body: SafeArea(
+                      child: SizedBox.expand(
+                        child: widget,
+                      ),
                     ),
                   ),
                 );
@@ -207,6 +214,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
 
   void _switchVideo(Map<String, dynamic> video) {
     setState(() {
+      _currentItemId = video['id']?.toString();
       _currentTitle = video['title'] ?? 'Video Edukasi';
       _currentUrl = video['url'] ?? '';
       _currentDescription = video['description'] as String?;
@@ -247,6 +255,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
         context,
         Routes.moduleDetail,
         arguments: ModuleDetailArguments(
+          itemId: item['id']?.toString(),
           title: (item['title'] ?? 'Materi Edukasi').toString(),
           url: (item['url'] ?? '').toString(),
           description: item['description'] as String?,
@@ -287,7 +296,12 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
   Widget build(BuildContext context) {
     // Filter out current video from related list
     final filteredRelated = _relatedVideos
-        .where((v) => (v['url'] ?? '') != _currentUrl)
+        .where((v) => !isSameLibraryItem(
+              currentId: _currentItemId,
+              currentTitle: _currentTitle,
+              currentUrl: _currentUrl,
+              candidate: v,
+            ))
         .toList();
 
     return Scaffold(
@@ -320,7 +334,9 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
           ),
         ],
       ),
-      body: ListView(
+      body: SafeArea(
+        top: false,
+        child: ListView(
         children: [
           // 1. In-App Video Player Card
           Container(
@@ -426,14 +442,16 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                 const SizedBox(height: 16),
 
                 // Quick Action Bar
-                Row(
-                  children: [
-                    Expanded(
+                ResponsiveActionButtonBar(
+                  actions: [
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 48),
                       child: OutlinedButton.icon(
                         onPressed: _launchExternalYouTube,
                         icon: const Icon(Icons.play_circle_fill_rounded, color: Colors.red, size: 20),
                         label: const Text(
                           'Aplikasi YouTube',
+                          textAlign: TextAlign.center,
                           style: TextStyle(
                             color: Color(0xFF0F172A),
                             fontWeight: FontWeight.w600,
@@ -441,19 +459,20 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                           ),
                         ),
                         style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
                           side: const BorderSide(color: Color(0xFFCBD5E1)),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 48),
                       child: OutlinedButton.icon(
                         onPressed: _copyLink,
                         icon: const Icon(Icons.link_rounded, color: Color(0xFF10B981), size: 20),
                         label: const Text(
                           'Salin Tautan',
+                          textAlign: TextAlign.center,
                           style: TextStyle(
                             color: Color(0xFF0F172A),
                             fontWeight: FontWeight.w600,
@@ -461,7 +480,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                           ),
                         ),
                         style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
                           side: const BorderSide(color: Color(0xFFCBD5E1)),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
@@ -521,13 +540,15 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                   children: [
                     Icon(Icons.video_library_rounded, size: 18, color: Color(0xFF0F172A)),
                     SizedBox(width: 8),
-                    Text(
-                      'Item Lainnya dalam Modul Ini',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F172A),
-                        fontFamily: 'Nunito',
+                    Expanded(
+                      child: Text(
+                        'Item Lainnya dalam Modul Ini',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                          fontFamily: 'Nunito',
+                        ),
                       ),
                     ),
                   ],
@@ -626,63 +647,67 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
                     return Container(
                       margin: const EdgeInsets.only(bottom: 10),
                       decoration: BoxDecoration(
-                        color: Colors.white,
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: const Color(0xFFE2E8F0)),
                       ),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        leading: leadingWidget,
-                        title: Text(
-                          itemTitle,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF0F172A),
+                      child: Material(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(9),
+                        clipBehavior: Clip.antiAlias,
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          leading: leadingWidget,
+                          title: Text(
+                            itemTitle,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF0F172A),
+                            ),
                           ),
-                        ),
-                        subtitle: Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: badgeBg,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  badgeLabel,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: badgeText,
-                                    fontFamily: 'Inter',
+                          subtitle: Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: badgeBg,
+                                    borderRadius: BorderRadius.circular(4),
                                   ),
-                                ),
-                              ),
-                              if (itemDesc != null && itemDesc.trim().isNotEmpty) ...[
-                                const SizedBox(width: 6),
-                                Expanded(
                                   child: Text(
-                                    itemDesc.trim(),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Color(0xFF64748B),
+                                    badgeLabel,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: badgeText,
                                       fontFamily: 'Inter',
                                     ),
                                   ),
                                 ),
+                                if (itemDesc != null && itemDesc.trim().isNotEmpty) ...[
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      itemDesc.trim(),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Color(0xFF64748B),
+                                        fontFamily: 'Inter',
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
+                          trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF94A3B8)),
+                          onTap: () => _handleSiblingTap(item),
                         ),
-                        trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF94A3B8)),
-                        onTap: () => _handleSiblingTap(item),
                       ),
                     );
                   }),
@@ -690,6 +715,7 @@ class _VideoDetailPageState extends State<VideoDetailPage> {
             ),
           ),
         ],
+        ),
       ),
     );
   }

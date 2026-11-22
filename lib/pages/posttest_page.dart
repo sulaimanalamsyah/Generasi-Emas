@@ -2,21 +2,11 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import '../services/api_client.dart';
 import '../core/storage.dart';
+import '../core/date_formatter.dart';
 import '../routes.dart';
 import '../widgets/common.dart';
 import '../widgets/in_app_viewer_page.dart';
 import '../widgets/loading_overlay.dart';
-
-String _fmtDate(dynamic submittedAt) {
-  if (submittedAt == null) return '-';
-  try {
-    final s = submittedAt.toString();
-    final dt = DateTime.tryParse(s)?.toLocal();
-    return (dt ?? DateTime.now()).toString().substring(0, 16);
-  } catch (_) {
-    return submittedAt.toString();
-  }
-}
 
 class PosttestPage extends StatefulWidget {
   const PosttestPage({super.key});
@@ -71,19 +61,18 @@ class _PosttestPageState extends State<PosttestPage> {
     return {'avg': formattedAvg, 'count': count};
   }
 
+  static const _kPosttestCacheKey = 'patient_posttests_v1';
+
   Future<void> _load() async {
     setState(() => loading = true);
 
     var links = await Prefs.getFormLinks();
 
-    if (links.isEmpty || !links.containsKey('GFORM_POSTTEST_CO_1_LINK')) {
-      try {
-        final apiConfig = await _api.getFormConfig();
-        await Prefs.setFormLinks(apiConfig);
-
-        links = apiConfig.map((k, v) => MapEntry(k, v.toString()));
-      } catch (_) {}
-    }
+    try {
+      final apiConfig = await _api.getFormConfig();
+      await Prefs.setFormLinks(apiConfig);
+      links = apiConfig.map((k, v) => MapEntry(k, v.toString()));
+    } catch (_) {}
 
     _postCoLinks.clear();
     _postPssLinks.clear();
@@ -95,65 +84,57 @@ class _PosttestPageState extends State<PosttestPage> {
       _postPssLinks.add(urlPss.trim());
     }
 
+    final role = await Prefs.getRole();
+    final isFatherRole = (role == 'father');
+
     try {
-      final role = await Prefs.getRole();
       final dynamic res = await _api.getPosttests();
+      final items = (res != null && res is Map && res['items'] is List)
+          ? List<Map<String, dynamic>>.from(res['items'])
+          : <Map<String, dynamic>>[];
+      await Prefs.setCachedJson(_kPosttestCacheKey, items);
 
       if (mounted) {
         setState(() {
-          isFather = (role == 'father');
-          if (res != null && res is Map && res['items'] != null) {
-            _items = List<Map<String, dynamic>>.from(res['items']);
-          } else {
-            _items = [];
-          }
+          isFather = isFatherRole;
+          _items = items;
           loading = false;
         });
       }
     } catch (e) {
-      if (mounted) setState(() => loading = false);
+      if (e is ApiError && e.status == 0) {
+        final cached = await Prefs.getCachedJson(_kPosttestCacheKey);
+        if (cached is List && mounted) {
+          setState(() {
+            isFather = isFatherRole;
+            _items = cached.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+            loading = false;
+          });
+          return;
+        }
+      }
+      if (mounted) {
+        setState(() {
+          isFather = isFatherRole;
+          loading = false;
+        });
+      }
     }
   }
 
-  void _handleOpenForm(String title, String url) {
+  void _handleOpenForm(String title, String url, {String? prefix}) {
     if (url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text(
-            "Link form ini belum diatur.",
-            style: TextStyle(fontFamily: 'Inter'),
-          ),
-          backgroundColor: const Color(0xFFEF4444),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
+      showAppSnackBar(context, message: "Tautan formulir ini belum diatur.", isError: true);
       return;
     }
 
     if (isFather) {
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text(
-            'Info untuk Ayah',
-            style: TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-          ),
-          content: const Text(
-            'Pengisian dilakukan oleh Ibu. Ayah hanya sebagai pemantau.',
-            style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF334155)),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text(
-                'Oke',
-                style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
-              ),
-            )
-          ],
-        ),
+      showAppInfoDialog(
+        context,
+        title: 'Info untuk Ayah',
+        message: 'Pengisian dilakukan oleh Ibu. Ayah hanya sebagai pemantau.',
+        variant: InfoDialogVariant.info,
+        buttonLabel: 'Oke',
       );
       return;
     }
@@ -163,7 +144,12 @@ class _PosttestPageState extends State<PosttestPage> {
       MaterialPageRoute(
         builder: (_) => InAppViewerPage(title: title, url: url),
       ),
-    ).then((_) => _load());
+    ).then((_) async {
+      try {
+        await _api.syncMyFormScore(prefix: prefix);
+      } catch (_) {}
+      await _load();
+    });
   }
 
   Widget _summaryCard(String title, String type, Color scoreColor, Color bgContainer) {
@@ -234,80 +220,101 @@ class _PosttestPageState extends State<PosttestPage> {
   Widget _subItem(String label, Map<String, dynamic>? data, VoidCallback onTap) {
     final isDone = data != null && (data['score'] != null || data['doneAt'] != null);
     final score = data?['score'];
-
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      title: Text(
-        label,
-        style: const TextStyle(
-          fontFamily: 'Nunito',
-          fontSize: 14,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF0F172A),
-        ),
-      ),
-      leading: Icon(
-        isDone ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-        color: isDone ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
-        size: 22,
-      ),
-      trailing: isDone
-          ? Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFFD1FAE5),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: const Color(0xFFA7F3D0)),
+    final badge = isDone
+        ? Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFD1FAE5),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: const Color(0xFFA7F3D0)),
+            ),
+            child: Text(
+              score != null ? 'Skor: ${AppDateFormatter.score(score)}' : 'Selesai',
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF064E3B),
               ),
-              child: Text(
-                score != null ? 'Skor: $score' : 'Selesai',
-                style: const TextStyle(
+            ),
+          )
+        : ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 40, minWidth: 64),
+            child: ElevatedButton(
+              onPressed: onTap,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF10B981),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              ),
+              child: const Text(
+                'Isi',
+                style: TextStyle(
                   fontFamily: 'Inter',
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF064E3B),
-                ),
-              ),
-            )
-          : SizedBox(
-              height: 38,
-              child: ElevatedButton(
-                onPressed: onTap,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981),
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                ),
-                child: const Text(
-                  'Isi',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                  ),
                 ),
               ),
             ),
+          );
+
+    return InkWell(
       onTap: isDone ? null : onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(
+              isDone ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+              color: isDone ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+              size: 22,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontFamily: 'Nunito',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                  badge,
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final bool isEmpty = !loading && _items.isEmpty;
+    final bool isLargeText = MediaQuery.textScalerOf(context).scale(14) > 18;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: evaluationAppBar(
         context: context,
-        title: 'Post Test',
+        title: 'Post-Test',
         onRefresh: _load,
       ),
-      body: loading
+      body: SafeArea(
+        top: false,
+        child: loading
           ? const LoadingOverlay(message: "Sinkronisasi Hasil Posttest...")
           : RefreshIndicator(
               onRefresh: _load,
@@ -442,27 +449,42 @@ class _PosttestPageState extends State<PosttestPage> {
                     ),
                     const SizedBox(height: 12),
 
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _summaryCard(
-                            'CO Partner',
-                            'CO_PARTNER',
-                            const Color(0xFF10B981),
-                            const Color(0xFFD1FAE5),
+                    if (isLargeText) ...[
+                      _summaryCard(
+                        'CO Partner',
+                        'CO_PARTNER',
+                        const Color(0xFF10B981),
+                        const Color(0xFFD1FAE5),
+                      ),
+                      const SizedBox(height: 12),
+                      _summaryCard(
+                        'PSS:NICU',
+                        'PSS_NICU',
+                        const Color(0xFF0EA5E9),
+                        const Color(0xFFE0F2FE),
+                      ),
+                    ] else
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _summaryCard(
+                              'CO Partner',
+                              'CO_PARTNER',
+                              const Color(0xFF10B981),
+                              const Color(0xFFD1FAE5),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _summaryCard(
-                            'PSS:NICU',
-                            'PSS_NICU',
-                            const Color(0xFF0EA5E9),
-                            const Color(0xFFE0F2FE),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _summaryCard(
+                              'PSS:NICU',
+                              'PSS_NICU',
+                              const Color(0xFF0EA5E9),
+                              const Color(0xFFE0F2FE),
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
 
                     const SizedBox(height: 24),
                     const Text(
@@ -558,16 +580,17 @@ class _PosttestPageState extends State<PosttestPage> {
                                     ),
                                   ),
                                   const SizedBox(width: 12),
-                                  Text(
-                                    'Evaluasi Ke-$n',
-                                    style: TextStyle(
-                                      fontFamily: 'Nunito',
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 15,
-                                      color: isLocked ? const Color(0xFF94A3B8) : const Color(0xFF0F172A),
+                                  Expanded(
+                                    child: Text(
+                                      'Evaluasi Ke-$n',
+                                      style: TextStyle(
+                                        fontFamily: 'Nunito',
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 15,
+                                        color: isLocked ? const Color(0xFF94A3B8) : const Color(0xFF0F172A),
+                                      ),
                                     ),
                                   ),
-                                  const Spacer(),
                                   if (isLocked)
                                     const Icon(Icons.lock_rounded, size: 18, color: Color(0xFF94A3B8))
                                   else if (isCompleted)
@@ -580,7 +603,7 @@ class _PosttestPageState extends State<PosttestPage> {
                                 padding: const EdgeInsets.all(16),
                                 child: Text(
                                   isLockedTime
-                                      ? 'Tersedia mulai: ${_fmtDate(dueAt)}'
+                                      ? 'Tersedia mulai: ${AppDateFormatter.dateTime(dueAt)}'
                                       : 'Selesaikan evaluasi sebelumnya terlebih dahulu.',
                                   style: const TextStyle(
                                     fontFamily: 'Inter',
@@ -592,9 +615,25 @@ class _PosttestPageState extends State<PosttestPage> {
                               ),
                             if (!isLocked) ...[
                               const Divider(height: 1, thickness: 0.5, color: Color(0xFFE2E8F0)),
-                              _subItem('CO Partner', item['coPartner'], () => _handleOpenForm('Evaluasi $n: CO Partner', urlCo)),
+                              _subItem(
+                                'CO Partner',
+                                item['coPartner'],
+                                () => _handleOpenForm(
+                                  'Evaluasi $n: CO Partner',
+                                  urlCo,
+                                  prefix: 'GFORM_POSTTEST_CO_$n',
+                                ),
+                              ),
                               const Divider(height: 1, indent: 16, endIndent: 16, thickness: 0.5, color: Color(0xFFE2E8F0)),
-                              _subItem('PSS NICU', item['pssNicu'], () => _handleOpenForm('Evaluasi $n: PSS NICU', urlPss)),
+                              _subItem(
+                                'PSS:NICU',
+                                item['pssNicu'],
+                                () => _handleOpenForm(
+                                  'Evaluasi $n: PSS:NICU',
+                                  urlPss,
+                                  prefix: 'GFORM_POSTTEST_PSS_$n',
+                                ),
+                              ),
                               const SizedBox(height: 8),
                             ]
                           ],
@@ -606,6 +645,7 @@ class _PosttestPageState extends State<PosttestPage> {
                 ],
               ),
             ),
+      ),
     );
   }
 }

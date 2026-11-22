@@ -2,26 +2,10 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import '../services/api_client.dart';
 import '../core/storage.dart';
+import '../core/date_formatter.dart';
 import '../widgets/common.dart';
 import '../widgets/in_app_viewer_page.dart';
 import '../widgets/loading_overlay.dart';
-
-String _fmtDate(dynamic submittedAt) {
-  if (submittedAt == null) return '-';
-  try {
-    final s = submittedAt.toString();
-    final dt = DateTime.tryParse(s)?.toLocal();
-    if (dt == null) return s;
-    final y = dt.year.toString().padLeft(4, '0');
-    final m = dt.month.toString().padLeft(2, '0');
-    final d = dt.day.toString().padLeft(2, '0');
-    final hh = dt.hour.toString().padLeft(2, '0');
-    final mm = dt.minute.toString().padLeft(2, '0');
-    return '$d/$m/$y $hh:$mm';
-  } catch (_) {
-    return submittedAt.toString();
-  }
-}
 
 class QuizPage extends StatefulWidget {
   const QuizPage({super.key});
@@ -49,18 +33,38 @@ class _QuizPageState extends State<QuizPage> {
     _loadData();
   }
 
+  static const _kScoresCacheKey = 'patient_form_scores_v1';
+
   Future<void> _loadData() async {
     setState(() => _loading = true);
 
     Map<String, String> links = await Prefs.getFormLinks();
+    Map<String, String> labels = await Prefs.getFormLabels();
 
-    if (links.isEmpty || !links.keys.any((k) => k.startsWith('GFORM_QUIZ'))) {
-      try {
-        final apiConfig = await _api.getFormConfig();
+    try {
+      final results = await Future.wait([
+        _api.getFormConfig(),
+        _api.getFormConfigMeta(),
+      ]);
+      final apiConfig = results[0];
+      if (apiConfig.isNotEmpty) {
         await Prefs.setFormLinks(apiConfig);
         links = apiConfig.map((k, v) => MapEntry(k, v.toString()));
-      } catch (_) {}
-    }
+      }
+      final meta = results[1];
+      final metaLinks = meta['links'];
+      if (metaLinks is Map && metaLinks.isNotEmpty && apiConfig.isEmpty) {
+        final typedLinks = metaLinks.map((k, v) => MapEntry(k.toString(), v));
+        await Prefs.setFormLinks(typedLinks);
+        links = typedLinks.map((k, v) => MapEntry(k, v.toString()));
+      }
+      final metaLabels = meta['labels'];
+      if (metaLabels is Map && metaLabels.isNotEmpty) {
+        final typedLabels = metaLabels.map((k, v) => MapEntry(k.toString(), v));
+        await Prefs.setFormLabels(typedLabels);
+        labels = typedLabels.map((k, v) => MapEntry(k, v.toString()));
+      }
+    } catch (_) {}
 
     // Collect only LINK keys, stripping _LINK suffix for clean title derivation.
     // Keys like GFORM_QUIZ_1_LINK, GFORM_QUIZ_2_LINK, GFORM_QUIZ_LINK are supported.
@@ -95,24 +99,20 @@ class _QuizPageState extends State<QuizPage> {
     // Sort alphabetically by key so numbering is deterministic
     collectedQuizzes.sort((a, b) => (a['key'] ?? '').compareTo(b['key'] ?? ''));
 
-    // Assign sequential "Kuis Edukasi X" titles
+    // Assign custom Admin label if provided, else sequential "Kuis Edukasi X"
     for (int i = 0; i < collectedQuizzes.length; i++) {
+      final k = collectedQuizzes[i]['key'] ?? '';
+      final customLabel = (labels[k] ?? '').trim();
       collectedQuizzes[i] = {
         ...collectedQuizzes[i],
-        'title': 'Kuis Edukasi ${i + 1}',
+        'title': customLabel.isNotEmpty ? customLabel : 'Kuis Edukasi ${i + 1}',
       };
     }
 
-    try {
-      final role = await Prefs.getRole();
-      final dynamic res = await _api.getMyFormScores();
+    final role = await Prefs.getRole();
+    final isFatherRole = (role == 'father');
 
-      final List allItems = (res is List)
-          ? res
-          : (res is Map ? (res['items'] as List? ?? []) : []);
-
-      // Primary field is 'kind' (what the backend actually returns).
-      // Accept 'QUIZ' or any 'QUIZ_X' type for future multi-quiz scores.
+    void applyItems(List allItems) {
       final quizzes = allItems.where((it) {
         if (it is! Map) return false;
         final t = (it['kind'] ?? it['type'])?.toString().toUpperCase() ?? '';
@@ -120,7 +120,7 @@ class _QuizPageState extends State<QuizPage> {
       }).map((e) => Map<String, dynamic>.from(e)).toList();
 
       double? avgScore;
-      int totalCount = quizzes.length;
+      final int totalCount = quizzes.length;
       dynamic latestDate;
 
       if (quizzes.isNotEmpty) {
@@ -151,19 +151,18 @@ class _QuizPageState extends State<QuizPage> {
         }
       }
 
-      // Bind per-quiz scores: for now single QUIZ score shown on all cards.
-      // When multi-quiz (QUIZ_1, QUIZ_2) scores exist, matched by index.
-      final String? singleScore = avgScore?.toStringAsFixed(1);
+      final String? singleScore = avgScore != null ? AppDateFormatter.score(avgScore) : null;
       for (int i = 0; i < collectedQuizzes.length; i++) {
-        // Try to find a score for QUIZ_${i+1} type (multi-quiz future support)
-        final quizType = 'QUIZ_${i + 1}';
+        final key = collectedQuizzes[i]['key'] ?? '';
+        final keyIndexMatch = RegExp(r'QUIZ_(\d+)').firstMatch(key);
+        final quizType = keyIndexMatch != null ? 'QUIZ_${keyIndexMatch.group(1)}' : 'QUIZ_${i + 1}';
         final matchedScore = quizzes.where((q) {
           final t = (q['kind'] ?? q['type'])?.toString().toUpperCase() ?? '';
           return t == quizType;
         }).firstOrNull;
 
-        final perQuizScore = matchedScore != null
-            ? double.tryParse(matchedScore['score']?.toString() ?? '')?.toStringAsFixed(1)
+        final perQuizScore = matchedScore != null && matchedScore['score'] != null
+            ? AppDateFormatter.score(matchedScore['score'])
             : (quizzes.length == 1 || (i == 0 && collectedQuizzes.length == 1))
                 ? singleScore
                 : (quizzes.isNotEmpty && collectedQuizzes.length == 1 ? singleScore : null);
@@ -176,7 +175,7 @@ class _QuizPageState extends State<QuizPage> {
 
       if (mounted) {
         setState(() {
-          _isFather = (role == 'father');
+          _isFather = isFatherRole;
           _averageScore = avgScore;
           _totalAttempts = totalCount;
           _latestSubmittedAt = latestDate;
@@ -184,9 +183,26 @@ class _QuizPageState extends State<QuizPage> {
           _loading = false;
         });
       }
-    } catch (_) {
+    }
+
+    try {
+      final dynamic res = await _api.getMyFormScores();
+      final List allItems = (res is List)
+          ? res
+          : (res is Map ? (res['items'] as List? ?? []) : []);
+      await Prefs.setCachedJson(_kScoresCacheKey, allItems);
+      applyItems(allItems);
+    } catch (e) {
+      if (e is ApiError && e.status == 0) {
+        final cached = await Prefs.getCachedJson(_kScoresCacheKey);
+        if (cached is List) {
+          applyItems(cached);
+          return;
+        }
+      }
       if (mounted) {
         setState(() {
+          _isFather = isFatherRole;
           _quizItems = collectedQuizzes;
           _loading = false;
         });
@@ -194,65 +210,43 @@ class _QuizPageState extends State<QuizPage> {
     }
   }
 
-  void _handleOpenForm(String title, String? url) {
+  void _handleOpenForm(String title, String? url, {String? key}) {
     final safeUrl = url?.trim() ?? '';
     if (safeUrl.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Link kuis belum tersedia."),
-          backgroundColor: Color(0xFFEF4444),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      showAppSnackBar(context, message: "Tautan kuis belum tersedia.", isError: true);
       return;
     }
 
     if (_isFather) {
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Row(
-            children: [
-              Icon(Icons.info_outline, color: Color(0xFF0284C7)),
-              SizedBox(width: 8),
-              Text(
-                'Info untuk Ayah',
-                style: TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          content: const Text(
-            'Pengisian dilakukan oleh Ibu. Ayah hanya sebagai pemantau.',
-            style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF475569)),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Oke',
-                  style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF10B981))),
-            ),
-          ],
-        ),
+      showAppInfoDialog(
+        context,
+        title: 'Info untuk Ayah',
+        message: 'Pengisian dilakukan oleh Ibu. Ayah hanya sebagai pemantau.',
+        variant: InfoDialogVariant.info,
+        buttonLabel: 'Oke',
       );
       return;
     }
 
+    final prefix = (key ?? '').replaceAll(RegExp(r'_LINK$'), '');
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => InAppViewerPage(title: title, url: safeUrl),
       ),
-    ).then((_) => _loadData());
+    ).then((_) async {
+      try {
+        await _api.syncMyFormScore(prefix: prefix.isNotEmpty ? prefix : null);
+      } catch (_) {}
+      await _loadData();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final String displayAvgScore =
-        _averageScore != null ? _averageScore!.toStringAsFixed(1) : '-';
+        _averageScore != null ? AppDateFormatter.score(_averageScore!) : '-';
+    final isLargeText = MediaQuery.textScalerOf(context).scale(14) > 18;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -264,6 +258,7 @@ class _QuizPageState extends State<QuizPage> {
       body: _loading
           ? const LoadingOverlay(message: "Mengambil Nilai Kuis...")
           : SafeArea(
+              top: false,
               child: RefreshIndicator(
                 onRefresh: _loadData,
                 color: const Color(0xFF10B981),
@@ -303,7 +298,7 @@ class _QuizPageState extends State<QuizPage> {
                       ),
 
                     const Text(
-                      'Kerjakan kuis pada tautan di bawah. Hasil skor dan riwayat pengerjaan akan otomatis ter-update setelah lembar respons diproses.',
+                      'Kerjakan kuis pada tautan di bawah. Hasil skor dan riwayat pengerjaan akan otomatis diperbarui setelah lembar respons diproses.',
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 13,
@@ -376,67 +371,73 @@ class _QuizPageState extends State<QuizPage> {
                           const SizedBox(height: 16),
                           const Divider(height: 1, color: Color(0xFFF1F5F9)),
                           const SizedBox(height: 16),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Skor Rata-rata',
-                                    style: TextStyle(
-                                      fontFamily: 'Inter',
-                                      fontSize: 12,
-                                      color: Color(0xFF64748B),
+                          SizedBox(
+                            width: double.infinity,
+                            child: Wrap(
+                              alignment: WrapAlignment.spaceBetween,
+                              crossAxisAlignment: WrapCrossAlignment.end,
+                              spacing: 16,
+                              runSpacing: 12,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Skor Rata-rata',
+                                      style: TextStyle(
+                                        fontFamily: 'Inter',
+                                        fontSize: 12,
+                                        color: Color(0xFF64748B),
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    displayAvgScore,
-                                    style: TextStyle(
-                                      fontFamily: 'Nunito',
-                                      fontSize: 28,
-                                      fontWeight: FontWeight.w800,
-                                      color: _averageScore != null
-                                          ? const Color(0xFF10B981)
-                                          : const Color(0xFF94A3B8),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      displayAvgScore,
+                                      style: TextStyle(
+                                        fontFamily: 'Nunito',
+                                        fontSize: 28,
+                                        fontWeight: FontWeight.w800,
+                                        color: _averageScore != null
+                                            ? const Color(0xFF10B981)
+                                            : const Color(0xFF94A3B8),
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  const Text(
-                                    'Total Selesai',
-                                    style: TextStyle(
-                                      fontFamily: 'Inter',
-                                      fontSize: 12,
-                                      color: Color(0xFF64748B),
+                                  ],
+                                ),
+                                Column(
+                                  crossAxisAlignment: isLargeText ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+                                  children: [
+                                    const Text(
+                                      'Total Selesai',
+                                      style: TextStyle(
+                                        fontFamily: 'Inter',
+                                        fontSize: 12,
+                                        color: Color(0xFF64748B),
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '$_totalAttempts Kuis',
-                                    style: const TextStyle(
-                                      fontFamily: 'Nunito',
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF0F172A),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '$_totalAttempts Kuis',
+                                      style: const TextStyle(
+                                        fontFamily: 'Nunito',
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF0F172A),
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Terakhir: ${_fmtDate(_latestSubmittedAt)}',
-                                    style: const TextStyle(
-                                      fontFamily: 'Inter',
-                                      fontSize: 11,
-                                      color: Color(0xFF64748B),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Terakhir: ${AppDateFormatter.dateTime(_latestSubmittedAt)}',
+                                      style: const TextStyle(
+                                        fontFamily: 'Inter',
+                                        fontSize: 11,
+                                        color: Color(0xFF64748B),
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            ],
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -457,9 +458,36 @@ class _QuizPageState extends State<QuizPage> {
 
                     // ── Dynamic Quiz Cards ──────────────────────────────────
                     ..._quizItems.map((item) {
+                      final itemKey = item['key'];
                       final itemTitle = item['title'] ?? 'Kuis Edukasi';
                       final itemUrl = item['url'] ?? '';
                       final itemScore = item['score']; // null = belum dikerjakan
+                      final openBtn = ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 48),
+                        child: ElevatedButton.icon(
+                          onPressed: () =>
+                              _handleOpenForm(itemTitle, itemUrl, key: itemKey),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF10B981),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 10),
+                          ),
+                          icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                          label: const Text(
+                            'Buka',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      );
 
                       return Container(
                         margin: const EdgeInsets.only(bottom: 12),
@@ -476,91 +504,76 @@ class _QuizPageState extends State<QuizPage> {
                             ),
                           ],
                         ),
-                        child: Row(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF1F5F9),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Icon(
-                                Icons.quiz_rounded,
-                                color: Color(0xFF10B981),
-                                size: 24,
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    itemTitle,
-                                    style: const TextStyle(
-                                      fontFamily: 'Nunito',
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF0F172A),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  // Per-quiz score chip
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: itemScore != null
-                                          ? const Color(0xFFD1FAE5)
-                                          : const Color(0xFFF1F5F9),
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                    child: Text(
-                                      itemScore != null
-                                          ? 'Skor: $itemScore'
-                                          : 'Belum Dikerjakan',
-                                      style: TextStyle(
-                                        fontFamily: 'Inter',
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: itemScore != null
-                                            ? const Color(0xFF047857)
-                                            : const Color(0xFF64748B),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            SizedBox(
-                              height: 48,
-                              child: ElevatedButton.icon(
-                                onPressed: () =>
-                                    _handleOpenForm(itemTitle, itemUrl),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF10B981),
-                                  foregroundColor: Colors.white,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F9),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 14),
-                                ),
-                                icon: const Icon(Icons.open_in_new_rounded,
-                                    size: 16),
-                                label: const Text(
-                                  'Buka',
-                                  style: TextStyle(
-                                    fontFamily: 'Inter',
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
+                                  child: const Icon(
+                                    Icons.quiz_rounded,
+                                    color: Color(0xFF10B981),
+                                    size: 24,
                                   ),
                                 ),
-                              ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        itemTitle,
+                                        style: const TextStyle(
+                                          fontFamily: 'Nunito',
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF0F172A),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: itemScore != null
+                                              ? const Color(0xFFD1FAE5)
+                                              : const Color(0xFFF1F5F9),
+                                          borderRadius: BorderRadius.circular(999),
+                                        ),
+                                        child: Text(
+                                          itemScore != null
+                                              ? 'Skor: $itemScore'
+                                              : 'Belum Dikerjakan',
+                                          style: TextStyle(
+                                            fontFamily: 'Inter',
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: itemScore != null
+                                                ? const Color(0xFF047857)
+                                                : const Color(0xFF64748B),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (!isLargeText) ...[
+                                  const SizedBox(width: 8),
+                                  openBtn,
+                                ],
+                              ],
                             ),
+                            if (isLargeText) ...[
+                              const SizedBox(height: 12),
+                              openBtn,
+                            ],
                           ],
                         ),
                       );

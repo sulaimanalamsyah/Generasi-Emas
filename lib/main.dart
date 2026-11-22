@@ -1,4 +1,5 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -6,6 +7,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'firebase_options.dart';
 import 'services/fcm_service.dart';
 import 'core/constants.dart';
+import 'widgets/common.dart';
 import 'app.dart';
 
 @pragma('vm:entry-point')
@@ -15,11 +17,12 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setSystemUIOverlayStyle(kLightSystemUiOverlayStyle);
   await initializeDateFormatting('id_ID', null);
 
   debugPrint("✅ Environment active: ${AppEnv.environment} (API: ${AppEnv.apiBaseUrl})");
 
-  // 1. Setup Error Boundary (Fallback UI)
+  // 1. Setup Error Boundary (hide raw exception strings in release builds)
   ErrorWidget.builder = (FlutterErrorDetails details) {
     return Material(
       color: Colors.white,
@@ -41,25 +44,27 @@ void main() async {
             ),
             const SizedBox(height: 10),
             const Text(
-              'Mohon maaf, terjadi kesalahan teknis pada halaman ini.',
+              'Mohon maaf, terjadi kesalahan teknis saat memuat halaman ini. Silakan kembali atau muat ulang.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey),
+              style: TextStyle(color: Color(0xFF64748B)),
             ),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.shade300),
+            if (kDebugMode) ...[
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: Text(
+                  details.exception.toString(),
+                  style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                  maxLines: 5,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              child: Text(
-                details.exception.toString(),
-                style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-                maxLines: 5,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
+            ],
           ],
         ),
       ),
@@ -71,7 +76,7 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-// 3. Only initialize FCM on mobile platforms
+  // 3. Only initialize FCM on mobile platforms
   if (!kIsWeb) {
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
     await FcmService().init();

@@ -45,52 +45,6 @@ class _ActivatePageState extends State<ActivatePage> {
     super.dispose();
   }
 
-  // Helper Alert Dialog
-  Future<void> _showDialogInfo(String title, String message, {bool isError = false}) {
-    return showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_outline : Icons.check_circle_outline,
-              color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-                  fontWeight: FontWeight.w600,
-                  fontSize: 18,
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          message,
-          style: const TextStyle(fontSize: 15, color: Color(0xFF334155)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text(
-              "OK",
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF10B981),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _startCooldown([int seconds = 60]) {
     _timer?.cancel();
     setState(() => _cooldown = seconds);
@@ -108,7 +62,12 @@ class _ActivatePageState extends State<ActivatePage> {
   Future<void> _resendOtp() async {
     final phone = _phoneCtrl.text.trim();
     if (phone.isEmpty) {
-      _showDialogInfo("Peringatan", "Nomor WhatsApp belum diisi", isError: true);
+      showAppInfoDialog(
+        context,
+        title: 'Peringatan',
+        message: 'Nomor ponsel WhatsApp belum diisi.',
+        isError: true,
+      );
       return;
     }
     setState(() => _submitting = true);
@@ -116,16 +75,30 @@ class _ActivatePageState extends State<ActivatePage> {
       await ApiClient().sendOtp(phone: phone);
       if (!mounted) return;
 
-      await _showDialogInfo("OTP Terkirim", "Kode OTP baru telah dikirim ke WhatsApp Anda.");
+      await showAppInfoDialog(
+        context,
+        title: 'OTP Terkirim',
+        message: 'Kode OTP baru telah dikirim ke WhatsApp Anda. Jika belum menerima kode dalam beberapa menit, coba kirim ulang atau silakan hubungi Admin.',
+      );
 
       _startCooldown(60);
     } catch (e) {
       if (!mounted) return;
 
       if (e is ApiError && e.status == 0) {
-        _showDialogInfo("Gagal Kirim", "Tidak ada koneksi internet. Mohon periksa jaringan Anda.", isError: true);
+        showAppInfoDialog(
+          context,
+          title: 'Gagal Kirim',
+          message: 'Tidak ada koneksi internet. Mohon periksa jaringan Anda atau silakan hubungi Admin.',
+          isError: true,
+        );
       } else {
-        _showDialogInfo("Gagal", "Gagal mengirim OTP: $e", isError: true);
+        showAppInfoDialog(
+          context,
+          title: 'Gagal Kirim OTP',
+          message: 'Gagal mengirim OTP ($e). Coba beberapa saat lagi atau silakan hubungi Admin.',
+          isError: true,
+        );
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -142,18 +115,31 @@ class _ActivatePageState extends State<ActivatePage> {
       await ApiClient().verifyOtp(phone: phone, code: code);
       if (!mounted) return;
 
-      await _showDialogInfo("Aktivasi Berhasil", "Akun Anda telah aktif. Silakan login.");
+      await showAppInfoDialog(
+        context,
+        title: 'Aktivasi Berhasil',
+        message: 'Akun Anda telah aktif. Silakan masuk menggunakan email dan kata sandi Anda.',
+      );
 
       if (!mounted) return;
-
       Navigator.pushNamedAndRemoveUntil(context, Routes.login, (r) => false);
     } catch (e) {
       if (!mounted) return;
 
       if (e is ApiError && e.status == 0) {
-        _showDialogInfo("Gagal Aktivasi", "Tidak ada koneksi internet. Mohon periksa jaringan Anda.", isError: true);
+        showAppInfoDialog(
+          context,
+          title: 'Gagal Aktivasi',
+          message: 'Tidak ada koneksi internet. Mohon periksa jaringan Anda atau silakan hubungi Admin.',
+          isError: true,
+        );
       } else {
-        _showDialogInfo("Aktivasi Gagal", e.toString(), isError: true);
+        showAppInfoDialog(
+          context,
+          title: 'Aktivasi Gagal',
+          message: '$e — periksa kembali kode OTP Anda atau silakan hubungi Admin.',
+          isError: true,
+        );
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -178,176 +164,159 @@ class _ActivatePageState extends State<ActivatePage> {
     final canResend = _cooldown == 0 && !_submitting;
     final canActivate = !_submitting && _otpCtrl.text.trim().length == 6;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 440),
-              child: Container(
-                padding: const EdgeInsets.all(28),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x0F0F172A),
-                      blurRadius: 16,
-                      offset: Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Form(
-                  key: _form,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Centralized Logo
-                      const Center(child: AppLogo(size: 90)),
-                      const SizedBox(height: 20),
-
-                      // Headings
-                      const Text(
-                        'Aktivasi Akun Anda',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontFamily: 'Nunito',
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF0F172A),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-
-                      const Text(
-                        'Silakan melakukan aktivasi akun Anda\ndengan menginputkan Kode Token\nyang didapat melalui WhatsApp',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 14,
-                          fontWeight: FontWeight.w400,
-                          color: Color(0xFF475569),
-                          height: 1.5,
-                        ),
-                      ),
-                      const SizedBox(height: 28),
-
-                      _FigmaInput(
-                        label: "Nomor WhatsApp",
-                        icon: Icons.phone_android_rounded,
-                        controller: _phoneCtrl,
-                        validator: _validatePhone,
-                        keyboardType: TextInputType.phone,
-                      ),
-                      const SizedBox(height: 16),
-
-                      _FigmaInput(
-                        label: "Kode OTP (6 digit)",
-                        icon: Icons.lock_clock_rounded,
-                        controller: _otpCtrl,
-                        validator: _validateOtp,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                          LengthLimitingTextInputFormatter(6),
-                        ],
-                        onChanged: (_) => setState(() {}),
-                      ),
-                      const SizedBox(height: 24),
-
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SizedBox(
-                              height: 50,
-                              child: OutlinedButton(
-                                style: OutlinedButton.styleFrom(
-                                  alignment: Alignment.center,
-                                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                                  foregroundColor: const Color(0xFF475569),
-                                  side: const BorderSide(color: Color(0xFFCBD5E1)),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  textStyle: const TextStyle(
-                                    fontFamily: 'Inter',
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                onPressed: canResend ? _resendOtp : null,
-                                child: Text(
-                                  canResend
-                                      ? 'Kirim Ulang Kode'
-                                      : 'Kirim Ulang (${_cooldown}s)',
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: SizedBox(
-                              height: 50,
-                              child: FilledButton(
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFF10B981),
-                                  disabledBackgroundColor: const Color(0xFFCBD5E1),
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  textStyle: const TextStyle(
-                                    fontFamily: 'Inter',
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                onPressed: (canActivate && !_submitting) ? _activate : null,
-                                child: _submitting
-                                    ? const SizedBox(
-                                        height: 20,
-                                        width: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Text('Aktivasi'),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-
-                      Center(
-                        child: SizedBox(
-                          height: 48,
-                          child: TextButton(
-                            onPressed: () => Navigator.pushNamedAndRemoveUntil(
-                              context,
-                              Routes.start,
-                              (r) => false,
-                            ),
-                            child: const Text(
-                              'Kembali ke Halaman Awal',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontFamily: 'Inter',
-                                color: Color(0xFF475569),
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                decoration: TextDecoration.underline,
-                              ),
-                            ),
-                          ),
-                        ),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: kLightSystemUiOverlayStyle,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 440),
+                child: Container(
+                  padding: const EdgeInsets.all(28),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x0F0F172A),
+                        blurRadius: 16,
+                        offset: Offset(0, 4),
                       ),
                     ],
+                  ),
+                  child: Form(
+                    key: _form,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Center(child: AppLogo(size: 90)),
+                        const SizedBox(height: 20),
+                        const Text(
+                          'Aktivasi Akun Anda',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'Nunito',
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Silakan aktifkan akun Anda dengan memasukkan Kode OTP 6 digit yang dikirim melalui WhatsApp, atau silakan hubungi Admin.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 14,
+                            color: Color(0xFF475569),
+                            height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 28),
+                        _ActivateField(
+                          label: 'Nomor WhatsApp',
+                          icon: Icons.phone_android_rounded,
+                          controller: _phoneCtrl,
+                          validator: _validatePhone,
+                          keyboardType: TextInputType.phone,
+                        ),
+                        const SizedBox(height: 16),
+                        _ActivateField(
+                          label: 'Kode OTP (6 digit)',
+                          icon: Icons.lock_clock_rounded,
+                          controller: _otpCtrl,
+                          validator: _validateOtp,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                            LengthLimitingTextInputFormatter(6),
+                          ],
+                          onChanged: (_) => setState(() {}),
+                        ),
+                        const SizedBox(height: 24),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(minHeight: 50),
+                                child: OutlinedButton(
+                                  style: OutlinedButton.styleFrom(
+                                    alignment: Alignment.center,
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                                    foregroundColor: const Color(0xFF475569),
+                                    side: const BorderSide(color: Color(0xFFCBD5E1)),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    textStyle: const TextStyle(
+                                      fontFamily: 'Inter',
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  onPressed: canResend ? _resendOtp : null,
+                                  child: Text(
+                                    canResend ? 'Kirim Ulang Kode' : 'Kirim Ulang (${_cooldown}s)',
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(minHeight: 50),
+                                child: FilledButton(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: const Color(0xFF10B981),
+                                    disabledBackgroundColor: const Color(0xFFCBD5E1),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    textStyle: const TextStyle(
+                                      fontFamily: 'Inter',
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  onPressed: (canActivate && !_submitting) ? _activate : null,
+                                  child: _submitting
+                                      ? const SizedBox(
+                                          height: 20,
+                                          width: 20,
+                                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                        )
+                                      : const Text('Aktivasi', textAlign: TextAlign.center),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(minHeight: 48),
+                            child: TextButton(
+                              onPressed: () => Navigator.pushNamedAndRemoveUntil(context, Routes.start, (r) => false),
+                              child: const Text(
+                                'Kembali ke Halaman Awal',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  color: Color(0xFF475569),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  decoration: TextDecoration.underline,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -359,8 +328,7 @@ class _ActivatePageState extends State<ActivatePage> {
   }
 }
 
-// Widget Input Field Refactored
-class _FigmaInput extends StatelessWidget {
+class _ActivateField extends StatelessWidget {
   final String label;
   final IconData icon;
   final TextEditingController controller;
@@ -369,7 +337,7 @@ class _FigmaInput extends StatelessWidget {
   final List<TextInputFormatter>? inputFormatters;
   final void Function(String)? onChanged;
 
-  const _FigmaInput({
+  const _ActivateField({
     required this.label,
     required this.icon,
     required this.controller,

@@ -1,7 +1,9 @@
 import 'package:material_ui/material_ui.dart';
 import '../core/constants.dart';
+import '../core/storage.dart';
 import '../routes.dart';
 import '../services/api_client.dart';
+import '../widgets/common.dart';
 import 'reference_detail_page.dart';
 
 class ReferencesPage extends StatefulWidget {
@@ -35,6 +37,8 @@ class _ReferencesPageState extends State<ReferencesPage> {
     super.dispose();
   }
 
+  static const _kRefsCacheKey = 'content_reference_mother_v1';
+
   Future<void> _fetchReferences() async {
     setState(() {
       _isLoading = true;
@@ -44,6 +48,7 @@ class _ReferencesPageState extends State<ReferencesPage> {
 
     try {
       final data = await _api.getContent('REFERENCE', 'MOTHER');
+      await Prefs.setCachedJson(_kRefsCacheKey, data);
       if (mounted) {
         setState(() {
           _allReferences = data;
@@ -51,6 +56,21 @@ class _ReferencesPageState extends State<ReferencesPage> {
         });
       }
     } catch (e) {
+      if (e is ApiError && e.status == 0) {
+        final cached = await Prefs.getCachedJson(_kRefsCacheKey);
+        if (mounted && cached is List) {
+          setState(() {
+            _allReferences = cached;
+            _isOffline = false;
+            _isLoading = false;
+          });
+          showAppSnackBar(
+            context,
+            message: 'Menampilkan referensi tersimpan (mode luring).',
+          );
+          return;
+        }
+      }
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -118,6 +138,7 @@ class _ReferencesPageState extends State<ReferencesPage> {
       context,
       Routes.referenceDetail,
       arguments: ReferenceDetailArguments(
+        itemId: item['id']?.toString(),
         title: (item['title'] ?? 'Referensi Medis').toString(),
         url: (item['url'] ?? '').toString(),
         author: item['author'] as String?,
@@ -134,24 +155,9 @@ class _ReferencesPageState extends State<ReferencesPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
-          tooltip: 'Kembali',
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'Referensi & Jurnal Medis',
-          style: TextStyle(
-            color: Color(0xFF0F172A),
-            fontWeight: FontWeight.w700,
-            fontSize: 18,
-            fontFamily: 'Nunito',
-          ),
-        ),
+      appBar: enicareAppBar(
+        context,
+        title: 'Referensi & Jurnal Medis',
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
@@ -160,12 +166,8 @@ class _ReferencesPageState extends State<ReferencesPage> {
             onPressed: _isLoading ? null : _fetchReferences,
           ),
         ],
-        bottom: const PreferredSize(
-          preferredSize: Size.fromHeight(1),
-          child: Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
-        ),
       ),
-      body: _buildBody(),
+      body: SafeArea(top: false, child: _buildBody()),
     );
   }
 
@@ -508,20 +510,24 @@ class _ReferencesPageState extends State<ReferencesPage> {
                               // Category Tag & Year
                               Row(
                                 children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFD1FAE5),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      category.toUpperCase(),
-                                      style: const TextStyle(
-                                        fontFamily: 'Inter',
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w800,
-                                        color: Color(0xFF047857),
+                                  Flexible(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFD1FAE5),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        category.toUpperCase(),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontFamily: 'Inter',
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w800,
+                                          color: Color(0xFF047857),
+                                        ),
                                       ),
                                     ),
                                   ),

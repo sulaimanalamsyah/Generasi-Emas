@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 import '../services/api_client.dart';
+import '../widgets/common.dart';
 
 class PrivacyPolicyPage extends StatefulWidget {
   const PrivacyPolicyPage({super.key});
@@ -75,26 +76,16 @@ Data tidak akan disebarluaskan tanpa izin.
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: const Text(
-          'Kebijakan Privasi',
-          style: TextStyle(
-            color: Color(0xFF0F172A),
-            fontWeight: FontWeight.w700,
-            fontSize: 18,
-          ),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
-      ),
-      body: _loading
-          ? const Center(
-              child: CircularProgressIndicator(
-                color: Color(0xFF10B981),
-              ),
-            )
-          : Column(
+      appBar: enicareAppBar(context, title: 'Kebijakan Privasi'),
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(
+                child: CircularProgressIndicator(
+                  color: Color(0xFF10B981),
+                ),
+              )
+            : Column(
               children: [
                 Expanded(
                   child: Padding(
@@ -152,6 +143,7 @@ Data tidak akan disebarluaskan tanpa izin.
                 ),
               ],
             ),
+      ),
     );
   }
 }

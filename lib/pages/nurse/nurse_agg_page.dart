@@ -1,6 +1,8 @@
 import 'package:material_ui/material_ui.dart';
+import '../../core/storage.dart';
 import '../../services/api_client.dart';
 import '../../routes.dart';
+import '../../widgets/common.dart';
 
 class NurseAggPage extends StatefulWidget {
   const NurseAggPage({super.key});
@@ -40,40 +42,15 @@ class _NurseAggPageState extends State<NurseAggPage> with WidgetsBindingObserver
     }
   }
 
-  // Helper Alert Dialog with styled design
-  Future<void> _showInfoDialog(String title, String message, {bool isError = false}) {
-    return showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_outline : Icons.check_circle_outline,
-              color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              title,
-              style: TextStyle(
-                fontFamily: 'Nunito',
-                fontWeight: FontWeight.w700,
-                color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          message,
-          style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF0F172A)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("OK", style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
-          ),
-        ],
-      ),
+  static const _kNursePatientsCacheKey = 'nurse_patients_list_v1';
+
+  Future<void> _showInfoDialog(String title, String message, {bool isError = false, InfoDialogVariant? variant}) {
+    return showAppInfoDialog(
+      context,
+      title: title,
+      message: message,
+      isError: isError,
+      variant: variant,
     );
   }
 
@@ -84,12 +61,28 @@ class _NurseAggPageState extends State<NurseAggPage> with WidgetsBindingObserver
     });
     try {
       final items = await _api.nurseGetPatients();
+      await Prefs.setCachedJson(_kNursePatientsCacheKey, items);
       if (!mounted) return;
       setState(() {
         _patients = items.map((e) => (e as Map).cast<String, dynamic>()).toList();
       });
     } catch (e) {
       if (!mounted) return;
+      if (e is ApiError && e.status == 0) {
+        final cached = await Prefs.getCachedJson(_kNursePatientsCacheKey);
+        if (!mounted) return;
+        if (cached is List) {
+          setState(() {
+            _patients = cached.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+            _error = null;
+          });
+          showAppSnackBar(
+            context,
+            message: 'Menampilkan data pasien terakhir tersimpan (mode luring).',
+          );
+          return;
+        }
+      }
       setState(() {
         if (e is ApiError && e.status == 0) {
           _error = 'Tidak ada koneksi internet.\nPeriksa jaringan Anda.';
@@ -197,38 +190,15 @@ class _NurseAggPageState extends State<NurseAggPage> with WidgetsBindingObserver
     final pid = _patientIdOf(p);
     final name = _motherNameOf(p);
 
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
-          'Lepas Pasien?',
-          style: TextStyle(fontFamily: 'Nunito', fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
-        ),
-        content: Text(
-          'Pasien "$name" akan dilepas dari daftar tanggung jawab Anda. Data logbook dan jurnal tetap tersimpan.',
-          style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF475569)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Batal', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFEF4444),
-              foregroundColor: Colors.white,
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Lepas', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
-          ),
-        ],
-      ),
+    final ok = await showAppConfirmDialog(
+      context,
+      title: 'Lepas Pasien?',
+      message: 'Pasien "$name" akan dilepas dari daftar tanggung jawab Anda. Data logbook dan jurnal tetap tersimpan.',
+      confirmLabel: 'Lepas',
+      isDestructive: true,
     );
 
-    if (ok == true) {
+    if (ok) {
       setState(() => _unassigningId = pid);
       try {
         await _api.nurseUnassignPatient(pid);
@@ -276,26 +246,29 @@ class _NurseAggPageState extends State<NurseAggPage> with WidgetsBindingObserver
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: const [
+          const Row(
+            children: [
               Icon(Icons.analytics_rounded, size: 20, color: Color(0xFF10B981)),
               SizedBox(width: 8),
-              Text(
-                'Ringkasan Pasien Binaan',
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
+              Expanded(
+                child: Text(
+                  'Ringkasan Pasien Binaan',
+                  style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: _MetricChip(
+          if (MediaQuery.textScalerOf(context).scale(14) > 18)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _MetricChip(
                   label: 'Total Pasien',
                   value: '$total',
                   bgColor: const Color(0xFFD1FAE5),
@@ -303,10 +276,8 @@ class _NurseAggPageState extends State<NurseAggPage> with WidgetsBindingObserver
                   icon: Icons.people_alt_rounded,
                   iconColor: const Color(0xFF10B981),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _MetricChip(
+                const SizedBox(height: 8),
+                _MetricChip(
                   label: 'Perawatan',
                   value: '$active',
                   bgColor: const Color(0xFFE0F2FE),
@@ -314,10 +285,8 @@ class _NurseAggPageState extends State<NurseAggPage> with WidgetsBindingObserver
                   icon: Icons.local_hospital_rounded,
                   iconColor: const Color(0xFF0EA5E9),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _MetricChip(
+                const SizedBox(height: 8),
+                _MetricChip(
                   label: 'Selesai',
                   value: '$completed',
                   bgColor: const Color(0xFFFEF3C7),
@@ -325,9 +294,45 @@ class _NurseAggPageState extends State<NurseAggPage> with WidgetsBindingObserver
                   icon: Icons.check_circle_rounded,
                   iconColor: const Color(0xFFF59E0B),
                 ),
-              ),
-            ],
-          ),
+              ],
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: _MetricChip(
+                    label: 'Total Pasien',
+                    value: '$total',
+                    bgColor: const Color(0xFFD1FAE5),
+                    textColor: const Color(0xFF064E3B),
+                    icon: Icons.people_alt_rounded,
+                    iconColor: const Color(0xFF10B981),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _MetricChip(
+                    label: 'Perawatan',
+                    value: '$active',
+                    bgColor: const Color(0xFFE0F2FE),
+                    textColor: const Color(0xFF072846),
+                    icon: Icons.local_hospital_rounded,
+                    iconColor: const Color(0xFF0EA5E9),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _MetricChip(
+                    label: 'Selesai',
+                    value: '$completed',
+                    bgColor: const Color(0xFFFEF3C7),
+                    textColor: const Color(0xFF78350F),
+                    icon: Icons.check_circle_rounded,
+                    iconColor: const Color(0xFFF59E0B),
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );
@@ -404,119 +409,136 @@ class _NurseAggPageState extends State<NurseAggPage> with WidgetsBindingObserver
     );
   }
 
-  Widget _buildBody() {
+  List<Widget> _buildBodySlivers() {
     if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(color: Color(0xFF10B981)),
-      );
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(
+            child: CircularProgressIndicator(color: Color(0xFF10B981)),
+          ),
+        ),
+      ];
     }
 
     if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.wifi_off_rounded, size: 56, color: Color(0xFF94A3B8)),
-              const SizedBox(height: 16),
-              const Text(
-                'Gagal Memuat Data',
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
-                ),
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.wifi_off_rounded, size: 56, color: Color(0xFF94A3B8)),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Gagal Memuat Data',
+                    style: TextStyle(
+                      fontFamily: 'Nunito',
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _error!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      color: Color(0xFFEF4444),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    onPressed: _load,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF10B981),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    ),
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text(
+                      'Coba Lagi',
+                      style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 8),
-              Text(
-                _error!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 14,
-                  color: Color(0xFFEF4444),
-                ),
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton.icon(
-                onPressed: _load,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                ),
-                icon: const Icon(Icons.refresh_rounded),
-                label: const Text(
-                  'Coba Lagi',
-                  style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600),
-                ),
-              )
-            ],
+            ),
           ),
         ),
-      );
+      ];
     }
 
     final list = _filteredPatients;
 
     if (list.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD1FAE5),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Icon(
-                  Icons.people_outline_rounded,
-                  size: 36,
-                  color: Color(0xFF10B981),
-                ),
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD1FAE5),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Icon(
+                      Icons.people_outline_rounded,
+                      size: 36,
+                      color: Color(0xFF10B981),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    _searchCtrl.text.isNotEmpty || _filterStatus != 'all'
+                        ? 'Pasien Tidak Ditemukan'
+                        : 'Belum Ada Pasien Binaan',
+                    style: const TextStyle(
+                      fontFamily: 'Nunito',
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _searchCtrl.text.isNotEmpty || _filterStatus != 'all'
+                        ? 'Coba sesuaikan kata kunci pencarian atau filter status pasien Anda.'
+                        : 'Pasien yang Anda assign akan muncul di daftar ini.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      color: Color(0xFF475569),
+                      height: 1.4,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 18),
-              Text(
-                _searchCtrl.text.isNotEmpty || _filterStatus != 'all'
-                    ? 'Pasien Tidak Ditemukan'
-                    : 'Belum Ada Pasien Binaan',
-                style: const TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                _searchCtrl.text.isNotEmpty || _filterStatus != 'all'
-                    ? 'Coba sesuaikan kata kunci pencarian atau filter status pasien Anda.'
-                    : 'Pasien yang Anda assign akan muncul di daftar ini.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 14,
-                  color: Color(0xFF475569),
-                  height: 1.4,
-                ),
-              ),
-            ],
+            ),
           ),
         ),
-      );
+      ];
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      itemCount: list.length,
-      itemBuilder: (ctx, i) {
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        sliver: SliverList.builder(
+          itemCount: list.length,
+          itemBuilder: (ctx, i) {
         final p = list[i];
         final pid = _patientIdOf(p);
         final mName = _motherNameOf(p);
@@ -649,73 +671,68 @@ class _NurseAggPageState extends State<NurseAggPage> with WidgetsBindingObserver
                 const SizedBox(height: 14),
 
                 // 4-Tile Action Grid
-                Row(
-                  children: [
-                    Expanded(
-                      child: _GridActionButton(
-                        icon: Icons.edit_note_rounded,
-                        label: 'Logbook',
-                        onTap: () => _openDetail(pid, 'logbook'),
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _GridActionButton(
+                          icon: Icons.edit_note_rounded,
+                          label: 'Logbook',
+                          onTap: () => _openDetail(pid, 'logbook'),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _GridActionButton(
-                        icon: Icons.menu_book_rounded,
-                        label: 'Jurnal',
-                        onTap: () => _openDetail(pid, 'journal'),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _GridActionButton(
+                          icon: Icons.menu_book_rounded,
+                          label: 'Jurnal',
+                          onTap: () => _openDetail(pid, 'journal'),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _GridActionButton(
-                        icon: Icons.assignment_turned_in_rounded,
-                        label: 'Evaluasi',
-                        onTap: () => _openDetail(pid, 'evaluasi'),
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(
+                        child: _GridActionButton(
+                          icon: Icons.assignment_turned_in_rounded,
+                          label: 'Evaluasi',
+                          onTap: () => _openDetail(pid, 'evaluasi'),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _GridActionButton(
-                        icon: Icons.person_rounded,
-                        label: 'Detail',
-                        onTap: () => _openDetail(pid, 'profile'),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _GridActionButton(
+                          icon: Icons.person_rounded,
+                          label: 'Detail',
+                          onTap: () => _openDetail(pid, 'profile'),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
         );
       },
-    );
+    ),
+    ),
+    ];
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'Pasien Binaan',
-          style: TextStyle(
-            fontFamily: 'Nunito',
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF0F172A),
-          ),
-        ),
+      appBar: enicareAppBar(
+        context,
+        title: 'Pasien Binaan',
         actions: [
           IconButton(
             tooltip: 'Perbarui Data',
@@ -725,17 +742,19 @@ class _NurseAggPageState extends State<NurseAggPage> with WidgetsBindingObserver
         ],
       ),
       body: SafeArea(
+        top: false,
         child: RefreshIndicator(
           onRefresh: _load,
           color: const Color(0xFF10B981),
-          child: Column(
-            children: [
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
               if (!_loading && _error == null && _patients.isNotEmpty) ...[
-                _buildMetricsHeader(),
-                _buildFilterAndSearchBar(),
-                const SizedBox(height: 8),
+                SliverToBoxAdapter(child: _buildMetricsHeader()),
+                SliverToBoxAdapter(child: _buildFilterAndSearchBar()),
+                const SliverToBoxAdapter(child: SizedBox(height: 8)),
               ],
-              Expanded(child: _buildBody()),
+              ..._buildBodySlivers(),
             ],
           ),
         ),
@@ -928,8 +947,8 @@ class _GridActionButton extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          height: 48,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: const Color(0xFFE2E8F0)),
@@ -938,14 +957,17 @@ class _GridActionButton extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(icon, size: 18, color: const Color(0xFF10B981)),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: const TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF0F172A),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF0F172A),
+                  ),
                 ),
               ),
             ],

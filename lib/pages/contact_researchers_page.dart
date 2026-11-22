@@ -2,7 +2,9 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/link_utils.dart';
+import '../core/storage.dart';
 import '../services/api_client.dart';
+import '../widgets/common.dart';
 import '../widgets/in_app_viewer_page.dart';
 
 class ContactResearchersPage extends StatefulWidget {
@@ -16,52 +18,48 @@ class _ContactResearchersPageState extends State<ContactResearchersPage> {
   final _api = ApiClient();
   late Future<List<dynamic>> _future;
 
+  static const _kContactsCacheKey = 'public_contacts_v1';
+
   @override
   void initState() {
     super.initState();
     _load();
   }
 
+  Future<List<dynamic>> _fetchContacts() async {
+    try {
+      final list = await _api.getContacts();
+      await Prefs.setCachedJson(_kContactsCacheKey, list);
+      return list;
+    } catch (e) {
+      if (e is ApiError && e.status == 0) {
+        final cached = await Prefs.getCachedJson(_kContactsCacheKey);
+        if (cached is List) {
+          if (mounted) {
+            showAppSnackBar(
+              context,
+              message: 'Menampilkan kontak peneliti tersimpan (mode luring).',
+            );
+          }
+          return cached;
+        }
+      }
+      rethrow;
+    }
+  }
+
   void _load() {
     setState(() {
-      _future = _api.getContacts();
+      _future = _fetchContacts();
     });
   }
 
-  // Helper Alert Dialog with styled design
   Future<void> _showDialogInfo(String title, String message, {bool isError = false}) {
-    return showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_outline : Icons.check_circle_outline,
-              color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              title,
-              style: TextStyle(
-                fontFamily: 'Nunito',
-                fontWeight: FontWeight.w700,
-                color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          message,
-          style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF0F172A)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("OK", style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600)),
-          ),
-        ],
-      ),
+    return showAppInfoDialog(
+      context,
+      title: title,
+      message: message,
+      isError: isError,
     );
   }
 
@@ -127,22 +125,20 @@ class _ContactResearchersPageState extends State<ContactResearchersPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        surfaceTintColor: Colors.transparent,
-        title: const Text(
-          'Kontak Peneliti',
-          style: TextStyle(
-            fontFamily: 'Nunito',
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF0F172A),
+      appBar: enicareAppBar(
+        context,
+        title: 'Kontak Peneliti',
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
+            tooltip: 'Perbarui Kontak',
+            onPressed: _load,
           ),
-        ),
-        iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
+        ],
       ),
-      body: FutureBuilder<List<dynamic>>(
+      body: SafeArea(
+        top: false,
+        child: FutureBuilder<List<dynamic>>(
         future: _future,
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
@@ -391,49 +387,46 @@ class _ContactResearchersPageState extends State<ContactResearchersPage> {
                         ),
                       ],
                       const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SizedBox(
-                              height: 48,
-                              child: FilledButton.icon(
-                                onPressed: () => _openWhatsApp(phone, name: name),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFF10B981),
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                                ),
-                                icon: const Icon(Icons.chat_bubble_outline, size: 20),
-                                label: const Text(
-                                  'WhatsApp',
-                                  style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600),
-                                ),
+                      Builder(
+                        builder: (btnCtx) {
+                          final isLargeText = MediaQuery.textScalerOf(btnCtx).scale(13) > 16;
+                          final waBtn = ConstrainedBox(
+                            constraints: const BoxConstraints(minHeight: 48),
+                            child: FilledButton.icon(
+                              onPressed: () => _openWhatsApp(phone, name: name),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF10B981),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                              ),
+                              icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                              label: const Text(
+                                'WhatsApp',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: SizedBox(
-                              height: 48,
-                              child: OutlinedButton.icon(
-                                onPressed: () => _call(phone),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: const Color(0xFF0EA5E9),
-                                  side: const BorderSide(color: Color(0xFF0EA5E9)),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                                ),
-                                icon: const Icon(Icons.call_outlined, size: 20),
-                                label: const Text(
-                                  'Telepon',
-                                  style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600),
-                                ),
+                          );
+                          final callBtn = ConstrainedBox(
+                            constraints: const BoxConstraints(minHeight: 48),
+                            child: OutlinedButton.icon(
+                              onPressed: () => _call(phone),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF0EA5E9),
+                                side: const BorderSide(color: Color(0xFF0EA5E9)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                              ),
+                              icon: const Icon(Icons.call_outlined, size: 18),
+                              label: const Text(
+                                'Telepon',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(fontFamily: 'Inter', fontSize: 13, fontWeight: FontWeight.w600),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Material(
+                          );
+                          final copyBtn = Material(
                             color: const Color(0xFFF1F5F9),
                             borderRadius: BorderRadius.circular(10),
                             child: InkWell(
@@ -442,8 +435,8 @@ class _ContactResearchersPageState extends State<ContactResearchersPage> {
                               child: Tooltip(
                                 message: 'Salin nomor',
                                 child: Container(
-                                  width: 48,
-                                  height: 48,
+                                  constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12),
                                   alignment: Alignment.center,
                                   child: const Icon(
                                     Icons.copy_rounded,
@@ -453,8 +446,39 @@ class _ContactResearchersPageState extends State<ContactResearchersPage> {
                                 ),
                               ),
                             ),
-                          ),
-                        ],
+                          );
+                          if (isLargeText) {
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                waBtn,
+                                const SizedBox(height: 8),
+                                IntrinsicHeight(
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    children: [
+                                      Expanded(child: callBtn),
+                                      const SizedBox(width: 8),
+                                      copyBtn,
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            );
+                          }
+                          return IntrinsicHeight(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Expanded(child: waBtn),
+                                const SizedBox(width: 8),
+                                Expanded(child: callBtn),
+                                const SizedBox(width: 8),
+                                copyBtn,
+                              ],
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -463,6 +487,7 @@ class _ContactResearchersPageState extends State<ContactResearchersPage> {
             },
           );
         },
+      ),
       ),
     );
   }

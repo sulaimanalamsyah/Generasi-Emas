@@ -1,7 +1,9 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:intl/intl.dart';
 import '../services/api_client.dart';
+import '../core/storage.dart';
 import '../core/weight_formatter.dart';
+import '../widgets/common.dart';
 
 class ProfileMotherDetailPage extends StatefulWidget {
   const ProfileMotherDetailPage({super.key});
@@ -49,54 +51,55 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
     super.dispose();
   }
 
-  // HELPER Alert Dialog with styled design
-  Future<void> _showDialogInfo(String title, String message, {bool isError = false}) {
-    return showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_outline : Icons.check_circle_outline,
-              color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontFamily: 'Nunito',
-                  fontWeight: FontWeight.w700,
-                  color: isError ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          message,
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 14,
-            color: Color(0xFF0F172A),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text(
-              "OK",
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF10B981),
-              ),
-            ),
-          )
-        ],
-      ),
+  static const _kProfileCacheKey = 'patient_profile_detail_v1';
+
+  Future<void> _showDialogInfo(String title, String message, {bool isError = false, InfoDialogVariant? variant}) {
+    return showAppInfoDialog(
+      context,
+      title: title,
+      message: message,
+      isError: isError,
+      variant: variant,
     );
+  }
+
+  void _applyProfileRes(Map<String, dynamic> res) {
+    final bool isObs = res['isObserver'] == true;
+    final p = res['profile'] as Map<String, dynamic>?;
+    if (p == null) {
+      setState(() {
+        _isObserver = isObs;
+        _loading = false;
+      });
+      return;
+    }
+
+    final infant = (p['infant'] is Map) ? (p['infant'] as Map).cast<String, dynamic>() : null;
+
+    setState(() {
+      _isObserver = isObs;
+
+      _motherName.text = (p['motherName'] as String?) ?? '';
+      _age.text = (p['age']?.toString() ?? '');
+      _parity.text = (p['parity']?.toString() ?? '');
+      _gestWeeks.text = (p['gestationalWeeks']?.toString() ?? '');
+      _birthWeight.text = ((infant?['birthWeight'] ?? p['birthWeight'])?.toString() ?? '');
+      _address.text = (p['address'] as String?) ?? '';
+
+      final rawEdu = p['education'] as String?;
+      _education = (rawEdu == 'Perguruan Tinggi') ? 'PT' : rawEdu;
+
+      final rawJob = p['job'] as String?;
+      _job = (rawJob == 'Lainnya') ? 'LAINNYA' : rawJob;
+
+      _delivery = p['delivery'] as String?;
+      _gender = p['babyGender'] as String?;
+
+      _babyName.text = (infant?['name'] as String?) ?? '';
+      _babyBirthDate = ApiClient.parseDate(infant?['birthDate']);
+
+      _loading = false;
+    });
   }
 
   Future<void> _load() async {
@@ -108,50 +111,30 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
         setState(() => _loading = false);
         return;
       }
-
-      final bool isObs = res['isObserver'] == true;
-
-      final p = res['profile'] as Map<String, dynamic>?;
-      if (p == null) {
-        setState(() {
-          _isObserver = isObs;
-          _loading = false;
-        });
-        return;
-      }
-
-      final infant = (p['infant'] is Map) ? (p['infant'] as Map).cast<String, dynamic>() : null;
-
-      setState(() {
-        _isObserver = isObs;
-
-        _motherName.text = (p['motherName'] as String?) ?? '';
-        _age.text = (p['age']?.toString() ?? '');
-        _parity.text = (p['parity']?.toString() ?? '');
-        _gestWeeks.text = (p['gestationalWeeks']?.toString() ?? '');
-        _birthWeight.text = (p['birthWeight']?.toString() ?? '');
-        _address.text = (p['address'] as String?) ?? '';
-
-        final rawEdu = p['education'] as String?;
-        _education = (rawEdu == 'Perguruan Tinggi') ? 'PT' : rawEdu;
-
-        final rawJob = p['job'] as String?;
-        _job = (rawJob == 'Lainnya') ? 'LAINNYA' : rawJob;
-
-        _delivery = p['delivery'] as String?;
-        _gender = p['babyGender'] as String?;
-
-        _babyName.text = (infant?['name'] as String?) ?? '';
-        _babyBirthDate = ApiClient.parseDate(infant?['birthDate']);
-
-        _loading = false;
-      });
+      await Prefs.setCachedJson(_kProfileCacheKey, res);
+      _applyProfileRes(res);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _loading = false);
 
       if (e is ApiError && e.status == 0) {
-        _showDialogInfo("Offline", "Gagal memuat data ibu. Periksa koneksi internet.", isError: true);
+        final cached = await Prefs.getCachedJson(_kProfileCacheKey);
+        if (!mounted) return;
+        if (cached is Map) {
+          _applyProfileRes(Map<String, dynamic>.from(cached));
+          showAppSnackBar(
+            context,
+            message: 'Menampilkan data terakhir tersimpan (mode luring).',
+          );
+          return;
+        }
+        setState(() => _loading = false);
+        _showDialogInfo(
+          "Luring",
+          "Gagal memuat data ibu. Periksa koneksi internet.",
+          variant: InfoDialogVariant.warning,
+        );
+      } else {
+        setState(() => _loading = false);
       }
     }
   }
@@ -170,6 +153,17 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
       return;
     }
 
+    final rawBirthWeight = _birthWeight.text.trim();
+    final birthWeight = _toInt(_birthWeight);
+    if (rawBirthWeight.isNotEmpty && (birthWeight == null || birthWeight < 300 || birthWeight > 6000)) {
+      _showDialogInfo(
+        "Input Tidak Valid",
+        "Berat Saat Lahir harus antara 300 hingga 6000 gram.",
+        variant: InfoDialogVariant.warning,
+      );
+      return;
+    }
+
     final bodyProfile = <String, dynamic>{
       'motherName': _motherName.text.trim().isEmpty ? null : _motherName.text.trim(),
       'age': _toInt(_age),
@@ -179,7 +173,7 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
       'delivery': _delivery,
       'gestationalWeeks': _toInt(_gestWeeks),
       'babyGender': _gender,
-      'birthWeight': _toInt(_birthWeight),
+      'birthWeight': birthWeight,
       'address': _address.text.trim().isEmpty ? null : _address.text.trim(),
       'birthDate': ApiClient.formatDateTimeIso(_babyBirthDate),
     };
@@ -225,20 +219,9 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
       },
       child: Scaffold(
         backgroundColor: const Color(0xFFF8FAFC),
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          elevation: 0.5,
-          surfaceTintColor: Colors.transparent,
-          title: const Text(
-            'Data Ibu & Bayi',
-            style: TextStyle(
-              fontFamily: 'Nunito',
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF0F172A),
-            ),
-          ),
-          iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
+        appBar: enicareAppBar(
+          context,
+          title: 'Data Ibu',
           actions: [
             if (!_isObserver && !_editing)
               TextButton.icon(
@@ -268,7 +251,9 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
               ),
           ],
         ),
-        body: _loading
+        body: SafeArea(
+          top: false,
+          child: _loading
             ? const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)))
             : RefreshIndicator(
                 color: const Color(0xFF10B981),
@@ -503,6 +488,7 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
                   ),
                 ),
               ),
+        ),
       ),
     );
   }
@@ -538,13 +524,15 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
                 child: Icon(icon, size: 20, color: const Color(0xFF10B981)),
               ),
               const SizedBox(width: 12),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontFamily: 'Nunito',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
                 ),
               ),
             ],
@@ -565,8 +553,8 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 130,
+          Expanded(
+            flex: 4,
             child: Text(
               label,
               style: const TextStyle(
@@ -578,6 +566,7 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
           ),
           const SizedBox(width: 10),
           Expanded(
+            flex: 5,
             child: Text(
               displayVal,
               style: const TextStyle(
@@ -634,35 +623,24 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
     Map<String, String>? itemLabels,
     required ValueChanged<String?> onChanged,
   }) {
-    return InputDecorator(
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: const TextStyle(fontFamily: 'Inter', color: Color(0xFF475569)),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-        ),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          isDense: true,
-          value: value,
-          icon: const Icon(Icons.arrow_drop_down_rounded, color: Color(0xFF475569)),
-          style: const TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF0F172A)),
-          items: items.map((e) {
-            final display = itemLabels != null && itemLabels.containsKey(e) ? itemLabels[e]! : e;
-            return DropdownMenuItem<String>(
-              value: e,
-              child: Text(display),
-            );
-          }).toList(),
-          onChanged: onChanged,
-        ),
+    final currentDisplay =
+        (value != null && itemLabels != null && itemLabels.containsKey(value))
+            ? itemLabels[value]!
+            : (value != null && value.isNotEmpty ? value : 'Pilih $label');
+    return EnicarePickerField(
+      label: label,
+      displayText: currentDisplay,
+      isActive: value != null && value.isNotEmpty,
+      onTap: () => showEnicareOptionSheet<String>(
+        context,
+        title: label,
+        selectedValue: value,
+        options: items.map((e) {
+          final display =
+              itemLabels != null && itemLabels.containsKey(e) ? itemLabels[e]! : e;
+          return EnicarePickerOption<String>(value: e, label: display);
+        }).toList(),
+        onSelected: onChanged,
       ),
     );
   }
@@ -675,28 +653,12 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
     if (_isObserver || !_editing) return;
     final now = DateTime.now();
     final initial = current ?? now;
-    final picked = await showDatePicker(
+    final picked = await showEnicareDatePicker(
       context: context,
       initialDate: initial,
       firstDate: DateTime(2020),
       lastDate: DateTime(now.year + 1),
       helpText: helpText,
-      cancelText: 'Batal',
-      confirmText: 'Pilih',
-      locale: const Locale('id', 'ID'),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF10B981),
-              onPrimary: Colors.white,
-              surface: Colors.white,
-              onSurface: Color(0xFF0F172A),
-            ),
-          ),
-          child: child!,
-        );
-      },
     );
     if (picked != null && mounted) {
       onChanged(DateTime(picked.year, picked.month, picked.day));
@@ -730,41 +692,48 @@ class _ProfileMotherDetailPageState extends State<ProfileMotherDetailPage> {
           borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
         ),
       ),
-      child: Row(
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        runSpacing: 4,
         children: [
-          Expanded(
-            child: Text(
-              dateStr,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 14,
-                fontWeight: value != null ? FontWeight.w600 : FontWeight.w400,
-                color: value != null ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
-              ),
+          Text(
+            dateStr,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 14,
+              fontWeight: value != null ? FontWeight.w600 : FontWeight.w400,
+              color: value != null ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
             ),
           ),
           if (!disabled)
-            SizedBox(
-              height: 38,
-              child: TextButton.icon(
-                onPressed: onPick,
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  foregroundColor: const Color(0xFF10B981),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 40),
+                  child: TextButton.icon(
+                    onPressed: onPick,
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      foregroundColor: const Color(0xFF10B981),
+                    ),
+                    icon: const Icon(Icons.edit_calendar_outlined, size: 18),
+                    label: const Text('Pilih', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13)),
+                  ),
                 ),
-                icon: const Icon(Icons.edit_calendar_outlined, size: 18),
-                label: const Text('Pilih', style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w600, fontSize: 13)),
-              ),
-            ),
-          if (value != null && !disabled)
-            SizedBox(
-              width: 32,
-              height: 38,
-              child: IconButton(
-                onPressed: onClear,
-                padding: EdgeInsets.zero,
-                icon: const Icon(Icons.clear_rounded, size: 18, color: Color(0xFF94A3B8)),
-              ),
+                if (value != null)
+                  SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: IconButton(
+                      onPressed: onClear,
+                      padding: EdgeInsets.zero,
+                      icon: const Icon(Icons.clear_rounded, size: 18, color: Color(0xFF94A3B8)),
+                    ),
+                  ),
+              ],
             ),
         ],
       ),

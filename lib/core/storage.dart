@@ -15,12 +15,15 @@ class Prefs {
   static const _kActivated = 'activated';
   static const _kDisplayName = 'display_name';
   static const _kRole = 'role';
+  static const _kSalutation = 'nurse_salutation';
   static const _kPretestDone = 'pretest_done';
   static const _kPhone = 'phone';
   static const _kToken = 'jwt';
   static const _kFormLinks = 'FORM_LINKS';
+  static const _kFormLabels = 'FORM_LABELS';
   static const _kCookie = 'auth_cookie';
   static const _kPendingFcmRevocation = 'pending_fcm_revocation';
+  static const _kCachePrefix = 'offline_cache_';
 
   // --- TOKEN (stored in Android Keystore / iOS Keychain) ---
   static Future<void> setToken(String v) async => _secure.write(key: _kToken, value: v);
@@ -36,10 +39,12 @@ class Prefs {
     final p = await _p;
     await p.remove(_kRole);
     await p.remove(_kDisplayName);
+    await p.remove(_kSalutation);
   }
 
   // --- APP STATE ---
-  static Future<void> setLastStartSeenNow() async => (await _p).setInt(_kLastStartSeenMs, DateTime.now().millisecondsSinceEpoch);
+  static Future<void> setLastStartSeenNow() async =>
+      (await _p).setInt(_kLastStartSeenMs, DateTime.now().millisecondsSinceEpoch);
   static Future<int?> getLastStartSeenMs() async => (await _p).getInt(_kLastStartSeenMs);
 
   static Future<void> setActivated(bool v) async => (await _p).setBool(_kActivated, v);
@@ -51,6 +56,23 @@ class Prefs {
 
   static Future<void> setRole(String v) async => (await _p).setString(_kRole, v);
   static Future<String?> getRole() async => (await _p).getString(_kRole);
+  static Future<bool> isGuest() async => (await getRole()) == 'guest';
+
+  /// Stores Nurse salutation: `null` removes key (defaults to `'Ns.'`), `''` means `Tanpa Gelar`.
+  static Future<void> setSalutation(String? v) async {
+    final p = await _p;
+    if (v == null) {
+      await p.remove(_kSalutation);
+    } else {
+      await p.setString(_kSalutation, v);
+    }
+  }
+
+  static Future<String?> getSalutation() async {
+    final p = await _p;
+    if (!p.containsKey(_kSalutation)) return null;
+    return p.getString(_kSalutation);
+  }
 
   static Future<void> setPretestDone(bool v) async => (await _p).setBool(_kPretestDone, v);
   static Future<bool> getPretestDone() async => (await _p).getBool(_kPretestDone) ?? false;
@@ -65,6 +87,28 @@ class Prefs {
       (await _p).getString(_kPendingFcmRevocation);
   static Future<void> clearPendingFcmRevocation() async =>
       (await _p).remove(_kPendingFcmRevocation);
+
+  // --- OFFLINE JSON READ-THROUGH CACHE ---
+  static Future<void> setCachedJson(String key, Object value) async {
+    try {
+      final p = await _p;
+      await p.setString('$_kCachePrefix$key', jsonEncode(value));
+    } catch (e) {
+      debugPrint('⚠️ Storage cache write error ($key): $e');
+    }
+  }
+
+  static Future<dynamic> getCachedJson(String key) async {
+    try {
+      final p = await _p;
+      final raw = p.getString('$_kCachePrefix$key');
+      if (raw == null || raw.isEmpty) return null;
+      return jsonDecode(raw);
+    } catch (e) {
+      debugPrint('⚠️ Storage cache read error ($key): $e');
+      return null;
+    }
+  }
 
   // --- GENERIC HELPERS ---
   static Future<bool?> getBool(String key) async {
@@ -96,7 +140,6 @@ class Prefs {
     final s = p.getString(_kFormLinks);
 
     if (s == null) {
-      debugPrint("💾 Storage: No form links found (NULL).");
       return {};
     }
 
@@ -104,12 +147,29 @@ class Prefs {
       final decoded = jsonDecode(s);
       if (decoded is Map) {
         final result = decoded.map((key, value) => MapEntry(key.toString(), value.toString()));
-        debugPrint("💾 Storage: Read ${result.length} form links successfully.");
         return Map<String, String>.from(result);
       }
     } catch (e) {
       debugPrint("❌ Storage: Error decoding form links: $e");
     }
+    return {};
+  }
+
+  static Future<void> setFormLabels(Map<String, dynamic> labels) async {
+    final p = await _p;
+    await p.setString(_kFormLabels, jsonEncode(labels));
+  }
+
+  static Future<Map<String, String>> getFormLabels() async {
+    final p = await _p;
+    final s = p.getString(_kFormLabels);
+    if (s == null) return {};
+    try {
+      final decoded = jsonDecode(s);
+      if (decoded is Map) {
+        return decoded.map((k, v) => MapEntry(k.toString(), v.toString()));
+      }
+    } catch (_) {}
     return {};
   }
 

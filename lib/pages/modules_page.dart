@@ -1,7 +1,9 @@
 import 'package:material_ui/material_ui.dart';
 import '../core/constants.dart';
+import '../core/storage.dart';
 import '../routes.dart';
 import '../services/api_client.dart';
+import '../widgets/common.dart';
 import 'module_detail_page.dart';
 
 class ModulesPage extends StatefulWidget {
@@ -35,6 +37,8 @@ class _ModulesPageState extends State<ModulesPage> {
     super.dispose();
   }
 
+  static const _kModulesCacheKey = 'content_modules_mother_v1';
+
   Future<void> _fetchModules() async {
     setState(() {
       _isLoading = true;
@@ -45,6 +49,7 @@ class _ModulesPageState extends State<ModulesPage> {
     try {
       // Fetch module content for MOTHER audience
       final data = await _api.getContent('MODULE', 'MOTHER');
+      await Prefs.setCachedJson(_kModulesCacheKey, data);
       if (mounted) {
         setState(() {
           _allModules = data;
@@ -52,6 +57,21 @@ class _ModulesPageState extends State<ModulesPage> {
         });
       }
     } catch (e) {
+      if (e is ApiError && e.status == 0) {
+        final cached = await Prefs.getCachedJson(_kModulesCacheKey);
+        if (mounted && cached is List) {
+          setState(() {
+            _allModules = cached;
+            _isOffline = false;
+            _isLoading = false;
+          });
+          showAppSnackBar(
+            context,
+            message: 'Menampilkan modul tersimpan (mode luring).',
+          );
+          return;
+        }
+      }
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -101,6 +121,7 @@ class _ModulesPageState extends State<ModulesPage> {
       if (matchedItems.isNotEmpty || (query.isEmpty && rawItems.isEmpty)) {
         final filteredModule = Map<String, dynamic>.from(module);
         filteredModule['items'] = matchedItems;
+        filteredModule['allItems'] = rawItems;
         results.add(filteredModule);
       }
     }
@@ -109,6 +130,7 @@ class _ModulesPageState extends State<ModulesPage> {
   }
 
   void _openModuleDetail({
+    String? itemId,
     required String title,
     required String url,
     String? description,
@@ -124,6 +146,7 @@ class _ModulesPageState extends State<ModulesPage> {
       context,
       Routes.moduleDetail,
       arguments: ModuleDetailArguments(
+        itemId: itemId,
         title: title,
         url: url,
         description: description,
@@ -138,24 +161,9 @@ class _ModulesPageState extends State<ModulesPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
-          tooltip: 'Kembali',
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'Modul Pembelajaran',
-          style: TextStyle(
-            color: Color(0xFF0F172A),
-            fontWeight: FontWeight.w700,
-            fontSize: 18,
-            fontFamily: 'Nunito',
-          ),
-        ),
+      appBar: enicareAppBar(
+        context,
+        title: 'Modul Pembelajaran',
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
@@ -164,12 +172,8 @@ class _ModulesPageState extends State<ModulesPage> {
             onPressed: _isLoading ? null : _fetchModules,
           ),
         ],
-        bottom: const PreferredSize(
-          preferredSize: Size.fromHeight(1),
-          child: Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
-        ),
       ),
-      body: _buildBody(),
+      body: SafeArea(top: false, child: _buildBody()),
     );
   }
 
@@ -448,6 +452,7 @@ class _ModulesPageState extends State<ModulesPage> {
               final mTitle = (module['title'] ?? 'Modul Edukasi').toString();
               final mDesc = module['description'] as String?;
               final items = (module['items'] as List?) ?? [];
+              final allItems = (module['allItems'] as List?) ?? items;
 
               return RepaintBoundary(
                 child: Container(
@@ -565,12 +570,13 @@ class _ModulesPageState extends State<ModulesPage> {
 
                           return InkWell(
                             onTap: () => _openModuleDetail(
+                              itemId: item['id']?.toString(),
                               title: itemTitle,
                               url: itemUrl,
                               description: itemDesc,
                               moduleTitle: mTitle,
                               kind: itemKind,
-                              allModuleItems: items,
+                              allModuleItems: allItems,
                             ),
                             borderRadius: idx == items.length - 1
                                 ? const BorderRadius.vertical(

@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:material_ui/material_ui.dart';
+import '../../core/storage.dart';
 import '../../services/api_client.dart';
 import '../../routes.dart';
+import '../../widgets/common.dart';
 import '../video_detail_page.dart';
 import '../module_detail_page.dart';
 
@@ -9,6 +11,7 @@ enum ResourceType { all, video, module, reference }
 
 class EducationalResource {
   final String id;
+  final String? rawItemId;
   final String title;
   final String? description;
   final String url;
@@ -23,6 +26,7 @@ class EducationalResource {
 
   const EducationalResource({
     required this.id,
+    this.rawItemId,
     required this.title,
     this.description,
     required this.url,
@@ -70,6 +74,45 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
     super.dispose();
   }
 
+  static const _kBrainstormingCacheKey = 'nurse_brainstorming_v1';
+
+  List<EducationalResource> _parseResources(List<dynamic> rawModules) {
+    final List<EducationalResource> parsed = [];
+    for (final g in rawModules) {
+      if (g is! Map) continue;
+      final gTitle = (g['title'] as String?) ?? 'Brainstorming Perawat';
+      final items = (g['items'] as List?) ?? [];
+      final itemsList = items.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+
+      for (final it in itemsList) {
+        final kind = (it['kind'] as String?)?.toUpperCase() ?? 'VIDEO';
+        ResourceType type;
+        if (kind == 'PDF') {
+          type = ResourceType.module;
+        } else if (kind == 'LINK') {
+          type = ResourceType.reference;
+        } else {
+          type = ResourceType.video;
+        }
+
+        parsed.add(
+          EducationalResource(
+            id: '${type.name}_${it['id']}',
+            rawItemId: it['id']?.toString(),
+            title: (it['title'] as String?) ?? 'Materi Brainstorming',
+            description: it['description'] as String?,
+            url: (it['url'] as String?) ?? '',
+            type: type,
+            category: gTitle,
+            groupTitle: gTitle,
+            relatedItems: itemsList,
+          ),
+        );
+      }
+    }
+    return parsed;
+  }
+
   Future<void> _loadData() async {
     setState(() {
       _loading = true;
@@ -79,39 +122,8 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
     try {
       // Mengambil materi brainstorming perawat dari endpoint terisolasi (bebas referensi pasien)
       final rawModules = await _api.getNurseBrainstorming();
-
-      final List<EducationalResource> parsed = [];
-
-      for (final g in rawModules) {
-        final gTitle = (g['title'] as String?) ?? 'Brainstorming Perawat';
-        final items = (g['items'] as List?) ?? [];
-        final itemsList = items.map((e) => (e as Map).cast<String, dynamic>()).toList();
-
-        for (final it in items) {
-          final kind = (it['kind'] as String?)?.toUpperCase() ?? 'VIDEO';
-          ResourceType type;
-          if (kind == 'PDF') {
-            type = ResourceType.module;
-          } else if (kind == 'LINK') {
-            type = ResourceType.reference;
-          } else {
-            type = ResourceType.video;
-          }
-
-          parsed.add(
-            EducationalResource(
-              id: '${type.name}_${it['id']}',
-              title: (it['title'] as String?) ?? 'Materi Brainstorming',
-              description: it['description'] as String?,
-              url: (it['url'] as String?) ?? '',
-              type: type,
-              category: gTitle,
-              groupTitle: gTitle,
-              relatedItems: itemsList,
-            ),
-          );
-        }
-      }
+      await Prefs.setCachedJson(_kBrainstormingCacheKey, rawModules);
+      final parsed = _parseResources(rawModules);
 
       if (!mounted) return;
       setState(() {
@@ -121,6 +133,22 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
       });
     } catch (e) {
       if (!mounted) return;
+      if (e is ApiError && e.status == 0) {
+        final cached = await Prefs.getCachedJson(_kBrainstormingCacheKey);
+        if (!mounted) return;
+        if (cached is List) {
+          setState(() {
+            _allResources = _parseResources(cached);
+            _loading = false;
+            _initialLoaded = true;
+          });
+          showAppSnackBar(
+            context,
+            message: 'Menampilkan materi brainstorming tersimpan (mode luring).',
+          );
+          return;
+        }
+      }
       setState(() {
         if (e is ApiError && e.status == 0) {
           _error = 'Tidak ada koneksi internet.\nPeriksa jaringan Anda.';
@@ -175,6 +203,7 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
           context,
           Routes.videoDetail,
           arguments: VideoDetailArguments(
+            itemId: item.rawItemId,
             title: item.title,
             url: item.url,
             description: item.description,
@@ -189,6 +218,7 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
           context,
           Routes.moduleDetail,
           arguments: ModuleDetailArguments(
+            itemId: item.rawItemId,
             title: item.title,
             url: item.url,
             description: item.description,
@@ -204,6 +234,7 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
           context,
           Routes.moduleDetail,
           arguments: ModuleDetailArguments(
+            itemId: item.rawItemId,
             title: item.title,
             url: item.url,
             description: item.description,
@@ -226,20 +257,9 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0.5,
-        surfaceTintColor: Colors.transparent,
-        title: const Text(
-          'Pusat Edukasi & Referensi',
-          style: TextStyle(
-            fontFamily: 'Nunito',
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF0F172A),
-          ),
-        ),
-        iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
+      appBar: enicareAppBar(
+        context,
+        title: 'Pusat Edukasi & Referensi',
         actions: [
           IconButton(
             tooltip: 'Perbarui Materi',
@@ -250,6 +270,7 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
         ],
       ),
       body: SafeArea(
+        top: false,
         child: Column(
           children: [
             // Search Input Container
@@ -722,35 +743,32 @@ class _BrainstormingNursePageState extends State<BrainstormingNursePage> {
                 const SizedBox(height: 14),
 
                 // Bottom Action Bar
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const SizedBox(),
-                    Container(
-                      height: 38,
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF10B981),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(actionIcon, size: 16, color: Colors.white),
-                          const SizedBox(width: 6),
-                          Text(
-                            actionLabel,
-                            style: const TextStyle(
-                              fontFamily: 'Inter',
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ],
-                      ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Container(
+                    constraints: const BoxConstraints(minHeight: 44),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                  ],
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(actionIcon, size: 16, color: Colors.white),
+                        const SizedBox(width: 6),
+                        Text(
+                          actionLabel,
+                          style: const TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),

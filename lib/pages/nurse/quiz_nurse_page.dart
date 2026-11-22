@@ -1,4 +1,5 @@
 import 'package:material_ui/material_ui.dart';
+import '../../widgets/common.dart';
 import '../../widgets/in_app_viewer_page.dart';
 import '../../core/storage.dart';
 import '../../services/api_client.dart';
@@ -47,17 +48,41 @@ class _QuizNursePageState extends State<QuizNursePage> {
     _loadLinks();
   }
 
+  static const _canonicalKeys = {
+    'GFORM_NURSE_QUIZ_FINC_LINK',
+    'GFORM_NURSE_QUIZ_KOMUNIKASI_LINK',
+    'GFORM_NURSE_QUIZ_KOLABORASI_LINK',
+  };
+
   Future<void> _loadLinks() async {
     setState(() => _loading = true);
     var links = await Prefs.getFormLinks();
+    var labels = await Prefs.getFormLabels();
 
-    if (links.isEmpty || !links.containsKey('GFORM_NURSE_QUIZ_FINC_LINK')) {
-      try {
-        final apiConfig = await _api.getFormConfig();
+    try {
+      final results = await Future.wait([
+        _api.getFormConfig(),
+        _api.getFormConfigMeta(),
+      ]);
+      final apiConfig = results[0];
+      if (apiConfig.isNotEmpty) {
         await Prefs.setFormLinks(apiConfig);
         links = apiConfig.map((k, v) => MapEntry(k, v.toString()));
-      } catch (_) {}
-    }
+      }
+      final meta = results[1];
+      final metaLinks = meta['links'];
+      if (metaLinks is Map && metaLinks.isNotEmpty && apiConfig.isEmpty) {
+        final typedLinks = metaLinks.map((k, v) => MapEntry(k.toString(), v));
+        await Prefs.setFormLinks(typedLinks);
+        links = typedLinks.map((k, v) => MapEntry(k, v.toString()));
+      }
+      final metaLabels = meta['labels'];
+      if (metaLabels is Map && metaLabels.isNotEmpty) {
+        final typedLabels = metaLabels.map((k, v) => MapEntry(k.toString(), v));
+        await Prefs.setFormLabels(typedLabels);
+        labels = typedLabels.map((k, v) => MapEntry(k, v.toString()));
+      }
+    } catch (_) {}
 
     if (mounted) {
       setState(() {
@@ -65,32 +90,63 @@ class _QuizNursePageState extends State<QuizNursePage> {
         final url1 = links['GFORM_NURSE_QUIZ_KOMUNIKASI_LINK'] ?? '';
         final url2 = links['GFORM_NURSE_QUIZ_KOLABORASI_LINK'] ?? '';
 
-        _items = [
+        String labelOr(String key, String fallback) {
+          final lbl = (labels[key] ?? '').trim();
+          return lbl.isNotEmpty ? lbl : fallback;
+        }
+
+        final nextItems = <_QuizItem>[
           _QuizItem(
-            title: _items[0].title,
-            desc: _items[0].desc,
+            title: labelOr('GFORM_NURSE_QUIZ_FINC_LINK', 'Kuis FINC & FCC Dasar'),
+            desc: 'Pengetahuan dasar Family Involvement in Neonatal Care (FINC) & Family-Centered Care (FCC).',
             url: url0.trim(),
-            icon: _items[0].icon,
-            color: _items[0].color,
-            bgColor: _items[0].bgColor,
+            icon: Icons.menu_book_rounded,
+            color: const Color(0xFF10B981),
+            bgColor: const Color(0xFFD1FAE5),
           ),
           _QuizItem(
-            title: _items[1].title,
-            desc: _items[1].desc,
+            title: labelOr('GFORM_NURSE_QUIZ_KOMUNIKASI_LINK', 'Komunikasi & Dukungan Psikososial'),
+            desc: 'Latihan komunikasi terapeutik dan dukungan psikososial untuk keluarga di ruang NICU.',
             url: url1.trim(),
-            icon: _items[1].icon,
-            color: _items[1].color,
-            bgColor: _items[1].bgColor,
+            icon: Icons.forum_outlined,
+            color: const Color(0xFF0284C7),
+            bgColor: const Color(0xFFE0F2FE),
           ),
           _QuizItem(
-            title: _items[2].title,
-            desc: _items[2].desc,
+            title: labelOr('GFORM_NURSE_QUIZ_KOLABORASI_LINK', 'Kolaborasi Perawatan Neonatus'),
+            desc: 'Koordinasi dengan orang tua dalam tindakan non-invasif & edukasi laktasi terstruktur.',
             url: url2.trim(),
-            icon: _items[2].icon,
-            color: _items[2].color,
-            bgColor: _items[2].bgColor,
+            icon: Icons.handshake_outlined,
+            color: const Color(0xFF6366F1),
+            bgColor: const Color(0xFFEEF2FF),
           ),
         ];
+
+        // Dynamically append any additional GFORM_NURSE_QUIZ_*_LINK configured by Admin
+        final extraKeys = links.keys
+            .where((k) =>
+                k.startsWith('GFORM_NURSE_QUIZ_') &&
+                k.endsWith('_LINK') &&
+                !_canonicalKeys.contains(k) &&
+                (links[k] ?? '').trim().isNotEmpty)
+            .toList()
+          ..sort();
+
+        for (final k in extraKeys) {
+          final pretty = k
+              .replaceAll(RegExp(r'^GFORM_NURSE_QUIZ_|_LINK$'), '')
+              .replaceAll('_', ' ');
+          nextItems.add(_QuizItem(
+            title: labelOr(k, 'Kuis Perawat: $pretty'),
+            desc: 'Formulir evaluasi klinis tambahan untuk perawat NICU.',
+            url: (links[k] ?? '').trim(),
+            icon: Icons.quiz_outlined,
+            color: const Color(0xFF0EA5E9),
+            bgColor: const Color(0xFFE0F2FE),
+          ));
+        }
+
+        _items = nextItems;
         _loading = false;
       });
     }
@@ -98,11 +154,10 @@ class _QuizNursePageState extends State<QuizNursePage> {
 
   void _openForm(String title, String url) {
     if (url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Link form evaluasi belum dikonfigurasi."),
-          behavior: SnackBarBehavior.floating,
-        ),
+      showAppSnackBar(
+        context,
+        message: "Tautan formulir evaluasi belum dikonfigurasi.",
+        isError: true,
       );
       return;
     }
@@ -121,29 +176,21 @@ class _QuizNursePageState extends State<QuizNursePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0.5,
-        surfaceTintColor: Colors.transparent,
-        title: const Text(
-          'Quiz & Evaluasi Perawat',
-          style: TextStyle(
-            fontFamily: 'Nunito',
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF0F172A),
-          ),
-        ),
-        iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
+      appBar: enicareAppBar(
+        context,
+        title: 'Kuis Perawat',
+        showBackButton: Navigator.of(context).canPop(),
         actions: [
           IconButton(
-            tooltip: 'Perbarui Form',
+            tooltip: 'Perbarui Formulir',
             icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
             onPressed: _loadLinks,
           ),
         ],
       ),
-      body: _loading
+      body: SafeArea(
+        top: false,
+        child: _loading
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)))
           : RefreshIndicator(
               onRefresh: _loadLinks,
@@ -227,6 +274,7 @@ class _QuizNursePageState extends State<QuizNursePage> {
                 ],
               ),
             ),
+      ),
     );
   }
 
@@ -296,33 +344,30 @@ class _QuizNursePageState extends State<QuizNursePage> {
             const Divider(height: 1, color: Color(0xFFF1F5F9)),
             const SizedBox(height: 14),
 
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const SizedBox(),
-                SizedBox(
-                  height: 44,
-                  child: FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF10B981),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(horizontal: 18),
-                    ),
-                    onPressed: () => _openForm(item.title, item.url),
-                    icon: const Icon(Icons.assignment_outlined, size: 18),
-                    label: const Text(
-                      'Buka Kuis',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                      ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  ),
+                  onPressed: () => _openForm(item.title, item.url),
+                  icon: const Icon(Icons.assignment_outlined, size: 18),
+                  label: const Text(
+                    'Buka Kuis',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
-              ],
+              ),
             ),
           ],
         ),

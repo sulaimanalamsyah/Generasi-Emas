@@ -68,7 +68,7 @@ class _LoginPageState extends State<LoginPage> {
     final pass = _pass.text;
 
     if (email.isEmpty && pass.isEmpty) {
-      _showSnackBar("Email dan password wajib diisi.", isError: true);
+      _showSnackBar("Email dan kata sandi wajib diisi.", isError: true);
       return;
     }
     if (email.isEmpty) {
@@ -76,7 +76,7 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
     if (pass.isEmpty) {
-      _showSnackBar("Password wajib diisi.", isError: true);
+      _showSnackBar("Kata sandi wajib diisi.", isError: true);
       return;
     }
 
@@ -94,6 +94,8 @@ class _LoginPageState extends State<LoginPage> {
       final user = await _api.login(email: email, password: pass);
       final role = (user['role'] as String?) ?? 'mother';
       await Prefs.setRole(role);
+      await Prefs.setSalutation(user['salutation'] as String?);
+      await Prefs.setNotificationEnabled((user['notificationsEnabled'] as bool?) ?? true);
 
       final phone = user['phone'] as String?;
       if (phone != null && phone.isNotEmpty) {
@@ -187,7 +189,9 @@ class _LoginPageState extends State<LoginPage> {
       child: Scaffold(
         backgroundColor: const Color(0xFFF8FAFC),
         appBar: AppBar(
+          systemOverlayStyle: kLightSystemUiOverlayStyle,
           backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
           elevation: 0,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back, color: Color(0xFF0F172A)),
@@ -285,12 +289,15 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       const SizedBox(height: 18),
 
-                      // Input Field: Password
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      // Input Field: Kata Sandi
+                      Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        runSpacing: 4,
                         children: [
                           const Text(
-                            'Password',
+                            'Kata Sandi',
                             style: TextStyle(
                               fontFamily: 'Inter',
                               fontSize: 14,
@@ -298,11 +305,10 @@ class _LoginPageState extends State<LoginPage> {
                               color: Color(0xFF0F172A),
                             ),
                           ),
-                          // Inline "Lupa Password?" link aligned right with label
                           GestureDetector(
                             onTap: () => Navigator.pushNamed(context, Routes.forgot),
                             child: const Text(
-                              'Lupa Password?',
+                              'Lupa Kata Sandi?',
                               style: TextStyle(
                                 fontFamily: 'Inter',
                                 fontSize: 13,
@@ -319,7 +325,7 @@ class _LoginPageState extends State<LoginPage> {
                         obscureText: _obscure,
                         style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
                         decoration: InputDecoration(
-                          hintText: 'Masukkan password Anda',
+                          hintText: 'Masukkan kata sandi',
                           hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
                           prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF94A3B8)),
                           suffixIcon: IconButton(

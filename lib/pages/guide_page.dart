@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 import '../core/storage.dart';
+import '../core/maternal_guide_data.dart';
 import '../widgets/common.dart';
 
 class GuidePage extends StatefulWidget {
@@ -14,16 +15,24 @@ class _GuidePageState extends State<GuidePage> {
   bool _loading = true;
   bool _isNurse = false;
   int _selectedRoleIndex = 0; // 0 = Ibu, 1 = Ayah (khusus pasien)
+  int _guideTabIndex = 0; // 0 = Jadwal Aktivitas NICU, 1 = Alur Aplikasi
+  List<Map<String, dynamic>> _nicuSlots = kDefaultMaternalGuideSlots;
 
   @override
   void initState() {
     super.initState();
     _selectedRoleIndex = widget.initialRoleIndex;
-    _initRole();
+    _initData();
   }
 
-  Future<void> _initRole() async {
-    final role = await Prefs.getRole();
+  Future<void> _initData() async {
+    final results = await Future.wait([
+      Prefs.getRole(),
+      fetchMaternalGuideWithFallback(),
+    ]);
+    final role = results[0] as String?;
+    final slots = results[1] as List<Map<String, dynamic>>;
+
     if (mounted) {
       setState(() {
         if (role == 'nurse') {
@@ -35,6 +44,7 @@ class _GuidePageState extends State<GuidePage> {
           _isNurse = false;
           _selectedRoleIndex = 0;
         }
+        _nicuSlots = slots;
         _loading = false;
       });
     }
@@ -42,12 +52,13 @@ class _GuidePageState extends State<GuidePage> {
 
   @override
   Widget build(BuildContext context) {
-    final appBarTitle = _isNurse ? 'Panduan Perawat' : 'Panduan Penggunaan';
+    final appBarTitle = _isNurse ? 'Panduan Perawat' : 'Panduan & Jadwal NICU';
+    final activeSlot = activeMaternalGuideSlot(_nicuSlots);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: evaluationAppBar(
-        context: context,
+      appBar: enicareAppBar(
+        context,
         title: appBarTitle,
         showBackButton: true,
       ),
@@ -56,165 +67,269 @@ class _GuidePageState extends State<GuidePage> {
               child: CircularProgressIndicator(color: Color(0xFF10B981)),
             )
           : SafeArea(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-                children: [
-                  // Hero Header Banner
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: _isNurse
-                            ? const [Color(0xFF0284C7), Color(0xFF0369A1)]
-                            : const [Color(0xFF10B981), Color(0xFF059669)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: (_isNurse ? const Color(0xFF0284C7) : const Color(0xFF10B981))
-                              .withValues(alpha: 0.25),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
+              top: false,
+              child: RefreshIndicator(
+                color: const Color(0xFF10B981),
+                onRefresh: _initData,
+                child: ListView(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                  children: [
+                    // Hero Header Banner
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: _isNurse
+                              ? const [Color(0xFF0284C7), Color(0xFF0369A1)]
+                              : const [Color(0xFF10B981), Color(0xFF059669)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Icon(
-                                Icons.auto_stories_rounded,
-                                color: Colors.white,
-                                size: 24,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                _isNurse ? 'Panduan Alur Perawat' : 'Panduan Alur Aplikasi',
-                                style: const TextStyle(
-                                  fontFamily: 'Nunito',
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: (_isNurse ? const Color(0xFF0284C7) : const Color(0xFF10B981))
+                                .withValues(alpha: 0.25),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(
+                                  Icons.auto_stories_rounded,
                                   color: Colors.white,
+                                  size: 24,
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          _isNurse
-                              ? 'Panduan langkah terstruktur bagi perawat dalam mengelola pasien binaan, pemantauan klinis, dan sinkronisasi evaluasi.'
-                              : 'Pelajari alur dan langkah-langkah penggunaan aplikasi Model I-FINC sesuai dengan peran Anda.',
-                          style: const TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 13,
-                            height: 1.4,
-                            color: Colors.white,
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  _guideTabIndex == 0
+                                      ? 'Jadwal Partisipasi Ibu di NICU'
+                                      : (_isNurse ? 'Panduan Alur Perawat' : 'Panduan Alur Aplikasi'),
+                                  style: const TextStyle(
+                                    fontFamily: 'Nunito',
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 10),
+                          Text(
+                            _guideTabIndex == 0
+                                ? 'Panduan aktivitas harian Ibu selama mendampingi bayi di ruang NICU (14 sesi terjadwal, 06.00–06.00 WIB).'
+                                : (_isNurse
+                                    ? 'Panduan langkah terstruktur bagi perawat dalam mengelola pasien binaan, pemantauan klinis, dan sinkronisasi evaluasi.'
+                                    : 'Pelajari alur dan langkah-langkah penggunaan aplikasi Model I-FINC sesuai dengan peran Anda.'),
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 13,
+                              height: 1.4,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
 
-                  const SizedBox(height: 20),
+                    const SizedBox(height: 16),
 
-                  // Role Segmented Switcher (HANYA MUNCUL UNTUK PASIEN: IBU / AYAH)
-                  if (!_isNurse) ...[
+                    // Top Segmented Switcher: Jadwal Aktivitas NICU vs Alur Aplikasi
                     Container(
                       padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
                         color: const Color(0xFFE2E8F0),
                         borderRadius: BorderRadius.circular(14),
                       ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: _RoleTab(
-                              label: 'Panduan Ibu (Pasien)',
-                              icon: Icons.pregnant_woman_rounded,
-                              isSelected: _selectedRoleIndex == 0,
-                              onTap: () => setState(() => _selectedRoleIndex = 0),
+                      child: IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              child: _RoleTab(
+                                label: 'Jadwal Aktivitas NICU',
+                                icon: Icons.schedule_rounded,
+                                isSelected: _guideTabIndex == 0,
+                                onTap: () => setState(() => _guideTabIndex = 0),
+                              ),
+                            ),
+                            Expanded(
+                              child: _RoleTab(
+                                label: 'Alur Aplikasi',
+                                icon: Icons.account_tree_outlined,
+                                isSelected: _guideTabIndex == 1,
+                                onTap: () => setState(() => _guideTabIndex = 1),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    if (_guideTabIndex == 0) ...[
+                      if (activeSlot != null)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 16),
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFECFDF5),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFF10B981), width: 1.2),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.access_time_filled_rounded, color: Color(0xFF047857), size: 22),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Sedang Berlangsung (${activeSlot['timeRange']} WIB)',
+                                      style: const TextStyle(
+                                        fontFamily: 'Nunito',
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 13,
+                                        color: Color(0xFF065F46),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${activeSlot['title']}',
+                                      style: const TextStyle(
+                                        fontFamily: 'Inter',
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                        color: Color(0xFF047857),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ..._nicuSlots.asMap().entries.map((entry) {
+                        final idx = entry.key;
+                        final slot = entry.value;
+                        final isCurrent = activeSlot != null && slot['id'] == activeSlot['id'];
+                        return _NicuActivityCard(
+                          index: idx + 1,
+                          slot: slot,
+                          isActiveNow: isCurrent,
+                        );
+                      }),
+                    ] else ...[
+                      // Role Segmented Switcher (HANYA MUNCUL UNTUK PASIEN: IBU / AYAH)
+                      if (!_isNurse) ...[
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE2E8F0),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: IntrinsicHeight(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Expanded(
+                                  child: _RoleTab(
+                                    label: 'Panduan Ibu (Pasien)',
+                                    icon: Icons.pregnant_woman_rounded,
+                                    isSelected: _selectedRoleIndex == 0,
+                                    onTap: () => setState(() => _selectedRoleIndex = 0),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: _RoleTab(
+                                    label: 'Panduan Ayah (Pemantau)',
+                                    icon: Icons.person_rounded,
+                                    isSelected: _selectedRoleIndex == 1,
+                                    onTap: () => setState(() => _selectedRoleIndex = 1),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
+                        ),
+                        const SizedBox(height: 20),
+                      ],
+
+                      // Role Overview Card
+                      _RoleOverviewCard(
+                        isNurse: _isNurse,
+                        isMother: !_isNurse && _selectedRoleIndex == 0,
+                      ),
+
+                      const SizedBox(height: 24),
+
+                      // Section Title
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.format_list_numbered_rounded,
+                            color: Color(0xFF0F172A),
+                            size: 22,
+                          ),
+                          const SizedBox(width: 8),
                           Expanded(
-                            child: _RoleTab(
-                              label: 'Panduan Ayah (Observer)',
-                              icon: Icons.person_rounded,
-                              isSelected: _selectedRoleIndex == 1,
-                              onTap: () => setState(() => _selectedRoleIndex = 1),
+                            child: Text(
+                              _isNurse
+                                  ? 'Langkah Kerja Perawat (6 Langkah)'
+                                  : (_selectedRoleIndex == 0
+                                      ? 'Langkah Penggunaan Ibu (8 Langkah)'
+                                      : 'Langkah Penggunaan Ayah (5 Langkah)'),
+                              style: const TextStyle(
+                                fontFamily: 'Nunito',
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF0F172A),
+                              ),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 20),
-                  ],
-
-                  // Role Overview Card
-                  _RoleOverviewCard(
-                    isNurse: _isNurse,
-                    isMother: !_isNurse && _selectedRoleIndex == 0,
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // Section Title
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.format_list_numbered_rounded,
-                        color: Color(0xFF0F172A),
-                        size: 22,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _isNurse
-                            ? 'Langkah Kerja Perawat (6 Langkah)'
-                            : (_selectedRoleIndex == 0
-                                ? 'Langkah Penggunaan Ibu (8 Langkah)'
-                                : 'Langkah Penggunaan Ayah (5 Langkah)'),
-                        style: const TextStyle(
-                          fontFamily: 'Nunito',
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF0F172A),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Ketuk pada setiap langkah untuk melihat penjelasan detail.',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          color: Color(0xFF64748B),
                         ),
                       ),
+                      const SizedBox(height: 14),
+
+                      // Step Accordion Cards
+                      if (_isNurse)
+                        ..._buildNurseSteps()
+                      else if (_selectedRoleIndex == 0)
+                        ..._buildMotherSteps()
+                      else
+                        ..._buildFatherSteps(),
                     ],
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Ketuk pada setiap langkah untuk melihat penjelasan detail.',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 12,
-                      color: Color(0xFF64748B),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
 
-                  // Step Accordion Cards
-                  if (_isNurse)
-                    ..._buildNurseSteps()
-                  else if (_selectedRoleIndex == 0)
-                    ..._buildMotherSteps()
-                  else
-                    ..._buildFatherSteps(),
-
-                  const SizedBox(height: 20),
-                ],
+                    const SizedBox(height: 20),
+                  ],
+                ),
               ),
             ),
     );
@@ -463,7 +578,8 @@ class _RoleTab extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        height: 48,
+        constraints: const BoxConstraints(minHeight: 48),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
           color: isSelected ? Colors.white : Colors.transparent,
           borderRadius: BorderRadius.circular(10),
@@ -490,18 +606,138 @@ class _RoleTab extends StatelessWidget {
             Flexible(
               child: Text(
                 label,
+                textAlign: TextAlign.center,
                 style: TextStyle(
                   fontFamily: isSelected ? 'Nunito' : 'Inter',
                   fontSize: 12,
                   fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
                   color: isSelected ? const Color(0xFF064E3B) : const Color(0xFF64748B),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _NicuActivityCard extends StatelessWidget {
+  final int index;
+  final Map<String, dynamic> slot;
+  final bool isActiveNow;
+
+  const _NicuActivityCard({
+    required this.index,
+    required this.slot,
+    required this.isActiveNow,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final phase = (slot['phase'] ?? 'Pagi').toString();
+    final timeRange = (slot['timeRange'] ?? '').toString();
+    final title = (slot['title'] ?? '').toString();
+    final action = (slot['action'] ?? '').toString();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isActiveNow ? const Color(0xFFECFDF5) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isActiveNow ? const Color(0xFF10B981) : const Color(0xFFE2E8F0),
+          width: isActiveNow ? 1.5 : 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withValues(alpha: isActiveNow ? 0.05 : 0.02),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isActiveNow ? const Color(0xFF10B981) : const Color(0xFFE0F2FE),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$timeRange WIB',
+                  style: TextStyle(
+                    fontFamily: 'Nunito',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: isActiveNow ? Colors.white : const Color(0xFF0369A1),
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$phase • Sesi $index',
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF475569),
+                  ),
+                ),
+              ),
+              if (isActiveNow)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD1FAE5),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Text(
+                    'Sedang Berlangsung',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF065F46),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: const TextStyle(
+              fontFamily: 'Nunito',
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF0F172A),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            action,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              height: 1.45,
+              color: Color(0xFF475569),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -638,7 +874,6 @@ class _ExpandableGuideStepCardState extends State<_ExpandableGuideStepCard> {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: _isExpanded ? const Color(0xFF10B981) : const Color(0xFFE2E8F0),
@@ -652,7 +887,11 @@ class _ExpandableGuideStepCardState extends State<_ExpandableGuideStepCard> {
           ),
         ],
       ),
-      child: Theme(
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        clipBehavior: Clip.antiAlias,
+        child: Theme(
         data: Theme.of(context).copyWith(
           dividerColor: Colors.transparent,
           splashColor: Colors.transparent,
@@ -745,6 +984,7 @@ class _ExpandableGuideStepCardState extends State<_ExpandableGuideStepCard> {
           ],
         ),
       ),
+    ),
     );
   }
 }

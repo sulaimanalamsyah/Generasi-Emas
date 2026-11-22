@@ -7,11 +7,14 @@ class FolderNursePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Folder Perawat')),
-      body: ListView(children: [
-        ListTile(leading: const Icon(Icons.lightbulb), title: const Text('Brainstorming Perawat'), onTap: ()=>Navigator.pushNamed(context, Routes.nurseBrainstorm)),
-        ListTile(leading: const Icon(Icons.inventory), title: const Text('Pasien Binaan'), onTap: ()=>Navigator.pushNamed(context, Routes.nurseAgg)),
-        ListTile(leading: const Icon(Icons.quiz), title: const Text('Quiz Perawat'), onTap: ()=>Navigator.pushNamed(context, Routes.nurseQuiz)),
-      ]),
+      body: SafeArea(
+        top: false,
+        child: ListView(children: [
+          ListTile(leading: const Icon(Icons.lightbulb), title: const Text('Brainstorming Perawat'), onTap: ()=>Navigator.pushNamed(context, Routes.nurseBrainstorm)),
+          ListTile(leading: const Icon(Icons.inventory), title: const Text('Pasien Binaan'), onTap: ()=>Navigator.pushNamed(context, Routes.nurseAgg)),
+          ListTile(leading: const Icon(Icons.quiz), title: const Text('Quiz Perawat'), onTap: ()=>Navigator.pushNamed(context, Routes.nurseQuiz)),
+        ]),
+      ),
     );
   }
 }

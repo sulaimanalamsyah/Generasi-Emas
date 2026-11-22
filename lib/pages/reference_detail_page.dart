@@ -10,9 +10,11 @@ import '../core/constants.dart';
 import '../core/pdf_helper.dart';
 import '../core/youtube_helper.dart';
 import '../routes.dart';
+import '../widgets/common.dart';
 import 'video_detail_page.dart';
 
 class ReferenceDetailArguments {
+  final String? itemId;
   final String title;
   final String url;
   final String? author;
@@ -23,6 +25,7 @@ class ReferenceDetailArguments {
   final List<Map<String, dynamic>> relatedReferences;
 
   const ReferenceDetailArguments({
+    this.itemId,
     required this.title,
     required this.url,
     this.author,
@@ -44,6 +47,7 @@ class ReferenceDetailPage extends StatefulWidget {
 }
 
 class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
+  String? _currentItemId;
   late String _currentTitle;
   late String _currentUrl;
   String? _currentAuthor;
@@ -57,12 +61,14 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
   bool _isLoading = true;
   String? _errorMessage;
   bool _isFullscreen = false;
+  bool _isReaderInteractive = false;
   bool _isCustomWidgetShown = false;
   Timer? _loadingTimeout;
 
   @override
   void initState() {
     super.initState();
+    _currentItemId = widget.args.itemId;
     _currentTitle = widget.args.title;
     _currentUrl = widget.args.url;
     _currentAuthor = widget.args.author;
@@ -160,8 +166,10 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
                   },
                   child: Scaffold(
                     backgroundColor: Colors.black,
-                    body: SizedBox.expand(
-                      child: widget,
+                    body: SafeArea(
+                      child: SizedBox.expand(
+                        child: widget,
+                      ),
                     ),
                   ),
                 );
@@ -225,6 +233,7 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
 
   void _switchReference(Map<String, dynamic> ref) {
     setState(() {
+      _currentItemId = ref['id']?.toString();
       _currentTitle = (ref['title'] ?? 'Referensi Medis').toString();
       _currentUrl = (ref['url'] ?? '').toString();
       _currentAuthor = ref['author'] as String?;
@@ -232,6 +241,7 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
       _currentCategory = ref['category'] as String?;
       _currentSummary = ref['summary'] as String?;
       _currentDoi = ref['doi'] as String?;
+      _isReaderInteractive = false;
     });
     _loadReference();
   }
@@ -271,6 +281,7 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
         context,
         Routes.videoDetail,
         arguments: VideoDetailArguments(
+          itemId: item['id']?.toString(),
           title: (item['title'] ?? 'Video Edukasi').toString(),
           url: (item['url'] ?? '').toString(),
           description: item['summary'] as String? ?? item['description'] as String?,
@@ -397,32 +408,38 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
             child: Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
           ),
         ),
-        body: _isFullscreen
-            ? _buildReaderView()
-            : ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                children: [
-                  // 1. Comprehensive Citation & Metadata Card
-                  _buildMetadataCard(),
+        body: SafeArea(
+          top: false,
+          child: _isFullscreen
+              ? _buildReaderView(interactive: true)
+              : ListView(
+                  physics: _isReaderInteractive
+                      ? const NeverScrollableScrollPhysics()
+                      : const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  children: [
+                    // 1. Comprehensive Citation & Metadata Card
+                    _buildMetadataCard(),
 
-                  const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-                  // 2. Interactive In-App Flipbook Reader Viewport
-                  _buildReaderSection(),
+                    // 2. Interactive In-App Flipbook Reader Viewport
+                    _buildReaderSection(),
 
-                  const SizedBox(height: 14),
+                    const SizedBox(height: 14),
 
-                  // 3. Reader Quick Actions Bar
-                  _buildQuickActionsBar(),
+                    // 3. Reader Quick Actions Bar
+                    _buildQuickActionsBar(),
 
-                  const SizedBox(height: 24),
+                    const SizedBox(height: 24),
 
-                  // 4. Related References
-                  _buildRelatedReferencesSection(),
+                    // 4. Related References
+                    _buildRelatedReferencesSection(),
 
-                  const SizedBox(height: 32),
-                ],
-              ),
+                    const SizedBox(height: 32),
+                  ],
+                ),
+        ),
       ),
     );
   }
@@ -449,7 +466,10 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Category & Year Tags
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Container(
                 padding:
@@ -464,20 +484,21 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
                     const Icon(Icons.menu_book_rounded,
                         size: 13, color: Color(0xFF047857)),
                     const SizedBox(width: 5),
-                    Text(
-                      cat.toUpperCase(),
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF047857),
+                    Flexible(
+                      child: Text(
+                        cat.toUpperCase(),
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF047857),
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
-              if (yr != null && yr.trim().isNotEmpty) ...[
-                const SizedBox(width: 8),
+              if (yr != null && yr.trim().isNotEmpty)
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -495,7 +516,6 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
                     ),
                   ),
                 ),
-              ],
             ],
           ),
 
@@ -662,26 +682,16 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
   }
 
   Widget _buildReaderSection() {
-    return Container(
-      height: 440,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFCBD5E1)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0A0F172A),
-            blurRadius: 12,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: _buildReaderView(),
+    return EnicareReaderSectionFrame(
+      isInteractive: _isReaderInteractive,
+      isLoading: _isLoading,
+      hasError: _errorMessage != null,
+      onToggleInteractive: () => setState(() => _isReaderInteractive = !_isReaderInteractive),
+      child: _buildReaderView(interactive: _isReaderInteractive),
     );
   }
 
-  Widget _buildReaderView() {
+  Widget _buildReaderView({bool interactive = false}) {
     if (_errorMessage != null) {
       return Center(
         child: Padding(
@@ -702,8 +712,10 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
                 ),
               ),
               const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 10,
+                runSpacing: 8,
                 children: [
                   ElevatedButton.icon(
                     onPressed: _loadReference,
@@ -715,7 +727,6 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
                       elevation: 0,
                     ),
                   ),
-                  const SizedBox(width: 10),
                   OutlinedButton.icon(
                     onPressed: _openInExternalBrowser,
                     icon: const Icon(Icons.open_in_browser_rounded, size: 16),
@@ -734,11 +745,13 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
         RepaintBoundary(
           child: WebViewWidget(
             controller: _controller,
-            gestureRecognizers: {
-              Factory<OneSequenceGestureRecognizer>(
-                () => EagerGestureRecognizer(),
-              ),
-            },
+            gestureRecognizers: interactive
+                ? {
+                    Factory<OneSequenceGestureRecognizer>(
+                      () => EagerGestureRecognizer(),
+                    ),
+                  }
+                : const <Factory<OneSequenceGestureRecognizer>>{},
           ),
         ),
         if (_isLoading)
@@ -770,9 +783,10 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
   }
 
   Widget _buildQuickActionsBar() {
-    return Row(
-      children: [
-        Expanded(
+    return ResponsiveActionButtonBar(
+      actions: [
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
           child: OutlinedButton.icon(
             onPressed: _toggleFullscreen,
             icon: Icon(
@@ -784,6 +798,7 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
             ),
             label: Text(
               _isFullscreen ? 'Keluar Layar' : 'Layar Penuh',
+              textAlign: TextAlign.center,
               style: const TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 12,
@@ -792,22 +807,22 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
               ),
             ),
             style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
               side: const BorderSide(color: Color(0xFFCBD5E1)),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
-              minimumSize: const Size(48, 48),
             ),
           ),
         ),
-        const SizedBox(width: 8),
-        Expanded(
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
           child: OutlinedButton.icon(
             onPressed: _copyCitationToClipboard,
             icon: const Icon(Icons.format_quote_rounded,
                 size: 18, color: kPrimary),
             label: const Text(
               'Salin Sitasi',
+              textAlign: TextAlign.center,
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 12,
@@ -816,21 +831,21 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
               ),
             ),
             style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
               side: const BorderSide(color: Color(0xFFD1FAE5)),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
-              minimumSize: const Size(48, 48),
             ),
           ),
         ),
-        const SizedBox(width: 8),
-        Expanded(
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
           child: ElevatedButton.icon(
             onPressed: _openInExternalBrowser,
             icon: const Icon(Icons.open_in_new_rounded, size: 16),
             label: const Text(
               'Buka Asli',
+              textAlign: TextAlign.center,
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 12,
@@ -841,10 +856,9 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
               backgroundColor: kPrimary,
               foregroundColor: Colors.white,
               elevation: 0,
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10)),
-              minimumSize: const Size(48, 48),
             ),
           ),
         ),
@@ -854,24 +868,31 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
 
   Widget _buildRelatedReferencesSection() {
     final otherItems = _relatedReferences
-        .where((it) => (it['url'] ?? '').toString() != _currentUrl)
+        .where((it) => !isSameLibraryItem(
+              currentId: _currentItemId,
+              currentTitle: _currentTitle,
+              currentUrl: _currentUrl,
+              candidate: it,
+            ))
         .toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: const [
+        const Row(
+          children: [
             Icon(Icons.library_books_rounded,
                 size: 18, color: Color(0xFF0F172A)),
             SizedBox(width: 8),
-            Text(
-              "Referensi Terkait Lainnya",
-              style: TextStyle(
-                fontFamily: 'Nunito',
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF0F172A),
+            Expanded(
+              child: Text(
+                "Referensi Terkait Lainnya",
+                style: TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0F172A),
+                ),
               ),
             ),
           ],
@@ -979,12 +1000,15 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
 
               return Container(
                 decoration: BoxDecoration(
-                  color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: const Color(0xFFE2E8F0)),
                 ),
-                child: ListTile(
-                  onTap: () => _handleSiblingTap(item),
+                child: Material(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(11),
+                  clipBehavior: Clip.antiAlias,
+                  child: ListTile(
+                    onTap: () => _handleSiblingTap(item),
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                   leading: leadingWidget,
@@ -1036,8 +1060,9 @@ class _ReferenceDetailPageState extends State<ReferenceDetailPage> {
                       ],
                     ),
                   ),
-                  trailing: const Icon(Icons.arrow_forward_ios_rounded,
-                      size: 14, color: kPrimary),
+                    trailing: const Icon(Icons.arrow_forward_ios_rounded,
+                        size: 14, color: kPrimary),
+                  ),
                 ),
               );
             },

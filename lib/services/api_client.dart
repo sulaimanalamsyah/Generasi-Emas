@@ -177,11 +177,15 @@ class ApiClient {
   // [BARU] LOGIKA RETRY & REFRESH TOKEN
   // ==========================================================
 
-  Future<dynamic> _withRetry(Future<http.Response> Function() requestFn) async {
+  Future<dynamic> _withRetry(
+    Future<http.Response> Function() requestFn, {
+    Duration? timeout,
+  }) async {
     await _checkConnection();
+    final effectiveTimeout = timeout ?? Duration(seconds: AppEnv.apiTimeoutSeconds);
     try {
       // 1. Coba Request Pertama
-      final response = await requestFn().timeout(Duration(seconds: AppEnv.apiTimeoutSeconds));
+      final response = await requestFn().timeout(effectiveTimeout);
 
       // Jika sukses, return hasil via _handle
       if (response.statusCode >= 200 && response.statusCode < 300) {
@@ -190,6 +194,9 @@ class ApiClient {
 
       // 2. Jika 401 Unauthorized -> Coba Refresh Token
       if (response.statusCode == 401) {
+        if (await Prefs.isGuest()) {
+          throw ApiError('Mode Tamu tidak memiliki akses terautentikasi.', status: 401);
+        }
         if (_isRefreshing) {
           throw ApiError("Sedang memperbarui sesi...", status: 401);
         }
@@ -202,17 +209,20 @@ class ApiClient {
         if (success) {
           debugPrint("✅ Refresh Berhasil. Mengulang Request...");
           // 3. Ulangi Request dengan Token Baru
-          final retryResponse = await requestFn().timeout(Duration(seconds: AppEnv.apiTimeoutSeconds));
+          final retryResponse = await requestFn().timeout(effectiveTimeout);
           return await _handle(retryResponse);
         } else {
           debugPrint("❌ Refresh Gagal. Logout Paksa.");
-          await _forceLogout(message: "Sesi berakhir, silakan login kembali.");
-          throw ApiError("Sesi berakhir, silakan login kembali.", status: 401);
+          await _forceLogout(message: "Sesi berakhir, silakan masuk kembali.");
+          throw ApiError("Sesi berakhir, silakan masuk kembali.", status: 401);
         }
       }
 
       // 3. Jika 403 Forbidden -> Sesi Invalid / Akses Ditolak -> Logout Paksa
       if (response.statusCode == 403) {
+        if (await Prefs.isGuest()) {
+          throw ApiError('Fitur khusus pengguna terdaftar.', status: 403);
+        }
         debugPrint("⛔ Akses Ditolak / Sesi Tidak Valid (403). Logout Paksa.");
         await _forceLogout(message: "Sesi Anda telah berakhir atau tidak memiliki izin akses. Silakan masuk kembali.");
         throw ApiError("Sesi Anda telah berakhir atau tidak memiliki izin akses. Silakan masuk kembali.", status: 403);
@@ -222,7 +232,7 @@ class ApiClient {
       return await _handle(response);
 
     } on TimeoutException catch (e) {
-      debugPrint("⏱️ [HTTP 408 Timeout] Request timed out after ${AppEnv.apiTimeoutSeconds}s: $e");
+      debugPrint("⏱️ [HTTP 408 Timeout] Request timed out after ${effectiveTimeout.inSeconds}s: $e");
       throw ApiError('Waktu Permintaan Habis: Sambungan ke server memerlukan waktu terlalu lama. Silakan periksa jaringan internet Anda dan coba lagi.', status: 408);
     } catch (e) {
       if (e is ApiError) rethrow;
@@ -263,6 +273,7 @@ class ApiClient {
   }
 
   Future<void> _forceLogout({String? message}) async {
+    if (await Prefs.isGuest()) return;
     if (_isEvictingSession) return;
     _isEvictingSession = true;
     try {
@@ -333,43 +344,53 @@ class ApiClient {
 
   // --- WRAPPER IMPLEMENTATION ---
 
-  Future<dynamic> _post(String url, Map<String, dynamic> body, {bool auth = false}) {
+  Future<dynamic> _post(String url, Map<String, dynamic> body, {bool auth = false, Duration? timeout}) {
     return _withRetry(() async {
       return await http.post(
         Uri.parse(url),
         headers: await _headers(auth: auth),
         body: jsonEncode(body),
       );
-    });
+    }, timeout: timeout);
   }
 
-  Future<dynamic> _get(String url, {bool auth = false}) {
+  Future<dynamic> _get(String url, {bool auth = false, Duration? timeout}) {
     return _withRetry(() async {
       return await http.get(
         Uri.parse(url),
         headers: await _headers(auth: auth),
       );
-    });
+    }, timeout: timeout);
   }
 
-  Future<dynamic> _put(String url, Map<String, dynamic> body, {bool auth = false}) {
+  Future<dynamic> _put(String url, Map<String, dynamic> body, {bool auth = false, Duration? timeout}) {
     return _withRetry(() async {
       return await http.put(
         Uri.parse(url),
         headers: await _headers(auth: auth),
         body: jsonEncode(body),
       );
-    });
+    }, timeout: timeout);
   }
 
-  Future<dynamic> _delete(String url, {bool auth = false, Map<String, dynamic>? body}) {
+  Future<dynamic> _patch(String url, Map<String, dynamic> body, {bool auth = false, Duration? timeout}) {
+    return _withRetry(() async {
+      return await http.patch(
+        Uri.parse(url),
+        headers: await _headers(auth: auth),
+        body: jsonEncode(body),
+      );
+    }, timeout: timeout);
+  }
+
+  Future<dynamic> _delete(String url, {bool auth = false, Map<String, dynamic>? body, Duration? timeout}) {
     return _withRetry(() async {
       final req = http.Request('DELETE', Uri.parse(url));
       req.headers.addAll(await _headers(auth: auth));
       if (body != null) req.body = jsonEncode(body);
       final streamed = await req.send();
       return await http.Response.fromStream(streamed);
-    });
+    }, timeout: timeout);
   }
 
   /* ========== AUTH METHODS ========== */
@@ -623,11 +644,67 @@ class ApiClient {
     await _delete('$base/api/nurse/patients/$patientId/assign', auth: true);
   }
 
-  // [BARU] Endpoint untuk Sinkronisasi Manual Skor
-  // Digunakan di menu Perawat untuk trigger update dari Google Sheets
-  Future<Map<String, dynamic>> nurseSyncScores() async {
-    final j = await _post('$base/api/nurse/sync-scores', {}, auth: true);
+  // [BARU] Endpoint untuk Sinkronisasi Manual Skor (dedicated 45s timeout for Google Sheets batch)
+  Future<Map<String, dynamic>> nurseSyncScores({String? patientId}) async {
+    final qs = (patientId != null && patientId.isNotEmpty)
+        ? '?patientId=${Uri.encodeComponent(patientId)}'
+        : '';
+    final j = await _post(
+      '$base/api/nurse/sync-scores$qs',
+      {if (patientId != null && patientId.isNotEmpty) 'patientId': patientId},
+      auth: true,
+      timeout: const Duration(seconds: 45),
+    );
     return (j as Map).cast<String, dynamic>();
+  }
+
+  Future<List<dynamic>> syncMyFormScore({String? prefix, String? patientId}) async {
+    final j = await _post(
+      '$base/api/forms/sync-me',
+      {
+        if (prefix != null && prefix.isNotEmpty) 'prefix': prefix,
+        if (patientId != null && patientId.isNotEmpty) 'patientId': patientId,
+      },
+      auth: true,
+      timeout: const Duration(seconds: 25),
+    );
+    return (j is Map ? (j['items'] as List?) : null) ?? [];
+  }
+
+  Future<Map<String, dynamic>> getFormConfigMeta() async {
+    try {
+      final r = await http
+          .get(Uri.parse('$base/api/public/config/forms-meta'))
+          .timeout(const Duration(seconds: 10));
+      if (r.statusCode == 200) {
+        return jsonDecode(r.body) as Map<String, dynamic>;
+      }
+    } catch (e) {
+      debugPrint('Gagal load forms-meta: $e');
+    }
+    return {};
+  }
+
+  Future<String?> updateSalutation(String salutation) async {
+    final j = await _patch('$base/api/me/salutation', {'salutation': salutation}, auth: true);
+    return j is Map ? j['salutation'] as String? : null;
+  }
+
+  Future<bool> updateNotificationSettings(bool enabled) async {
+    final j = await _patch('$base/api/me/notification-settings', {'enabled': enabled}, auth: true);
+    return j is Map ? (j['notificationsEnabled'] as bool? ?? enabled) : enabled;
+  }
+
+  Future<List<Map<String, dynamic>>> getNotificationSchedules() async {
+    final j = await _get('$base/api/public/notification-schedules');
+    final list = j is Map ? (j['schedules'] as List? ?? []) : [];
+    return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+  }
+
+  Future<List<Map<String, dynamic>>> getMaternalGuide() async {
+    final j = await _get('$base/api/public/maternal-guide');
+    final list = j is Map ? (j['items'] as List? ?? []) : [];
+    return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
   }
 
   // [ISOLASI DOMAIN] Endpoint Brainstorming Khusus Perawat
