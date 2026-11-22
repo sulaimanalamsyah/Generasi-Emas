@@ -1,8 +1,8 @@
 {
   "android/app/build.gradle": {
-    "mtime": 1794458885.0771098,
-    "seen": 1795335246.5651915,
-    "ast_hash": "68aee83d496506adb8c71ee3935b0ab8",
+    "mtime": 1795363533.0865815,
+    "seen": 1795363744.9708698,
+    "ast_hash": "936621bb79c120d509b545faab258622",
     "semantic_hash": ""
   },
   "android/build.gradle": {
