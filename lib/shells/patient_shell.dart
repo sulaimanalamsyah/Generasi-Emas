@@ -1,9 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import '../pages/home_patient_page.dart';
 import '../pages/baby_journal_page.dart';
 import '../pages/logbook_page.dart';
 import '../pages/profile_page.dart';
 import '../core/partner_sync.dart';
+import '../widgets/common.dart';
 import '../routes.dart';
 
 class PatientShell extends StatefulWidget {
@@ -26,10 +27,10 @@ class _PatientShellState extends State<PatientShell> {
   late int _index;
 
   final _tabs = const <Widget>[
-    _KeepAlive(child: HomePatientPage()),
-    _KeepAlive(child: BabyJournalPage()),
-    _KeepAlive(child: LogbookPage()),
-    _KeepAlive(child: ProfilePage()),
+    KeepAliveWrapper(child: HomePatientPage()),
+    KeepAliveWrapper(child: BabyJournalPage()),
+    KeepAliveWrapper(child: LogbookPage()),
+    KeepAliveWrapper(child: ProfilePage()),
   ];
 
   @override
@@ -137,20 +138,3 @@ class _PatientShellState extends State<PatientShell> {
   }
 }
 
-class _KeepAlive extends StatefulWidget {
-  final Widget child;
-  const _KeepAlive({required this.child});
-  @override
-  State<_KeepAlive> createState() => _KeepAliveState();
-}
-
-class _KeepAliveState extends State<_KeepAlive>
-    with AutomaticKeepAliveClientMixin {
-  @override
-  bool get wantKeepAlive => true;
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    return widget.child;
-  }
-}

@@ -1,9 +1,10 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../pages/nurse/home_nurse_page.dart';
 import '../pages/nurse/nurse_agg_page.dart';
 import '../pages/nurse/folder_nurse_page.dart';
 import '../pages/nurse/quiz_nurse_page.dart';
+import '../widgets/common.dart';
 import '../routes.dart';
 
 class NurseShell4 extends StatefulWidget {
@@ -26,10 +27,10 @@ class _NurseShell4State extends State<NurseShell4> {
   late int _index;
 
   final _tabs = const <Widget>[
-    _KeepAlive(child: HomeNursePage()),
-    _KeepAlive(child: NurseAggPage()),
-    _KeepAlive(child: FolderNursePage()),
-    _KeepAlive(child: QuizNursePage()),
+    KeepAliveWrapper(child: HomeNursePage()),
+    KeepAliveWrapper(child: NurseAggPage()),
+    KeepAliveWrapper(child: FolderNursePage()),
+    KeepAliveWrapper(child: QuizNursePage()),
   ];
 
   @override
@@ -52,23 +53,5 @@ class _NurseShell4State extends State<NurseShell4> {
     return Scaffold(
       body: IndexedStack(index: _index, children: _tabs),
     );
-  }
-}
-
-class _KeepAlive extends StatefulWidget {
-  final Widget child;
-  const _KeepAlive({required this.child});
-  @override
-  State<_KeepAlive> createState() => _KeepAliveState();
-}
-
-class _KeepAliveState extends State<_KeepAlive>
-    with AutomaticKeepAliveClientMixin {
-  @override
-  bool get wantKeepAlive => true;
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    return widget.child;
   }
 }

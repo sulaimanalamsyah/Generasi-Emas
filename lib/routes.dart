@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'pages/splash_page.dart';
 import 'pages/start_page.dart';
 import 'pages/register_page.dart';

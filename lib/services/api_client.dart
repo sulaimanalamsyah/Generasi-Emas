@@ -1,6 +1,7 @@
+// ignore_for_file: deprecated_member_use
 import 'dart:convert';
 import 'dart:async';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:http/http.dart' as http;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -184,7 +185,7 @@ class ApiClient {
 
       // Jika sukses, return hasil via _handle
       if (response.statusCode >= 200 && response.statusCode < 300) {
-        return _handle(response);
+        return await _handle(response);
       }
 
       // 2. Jika 401 Unauthorized -> Coba Refresh Token
@@ -202,7 +203,7 @@ class ApiClient {
           debugPrint("✅ Refresh Berhasil. Mengulang Request...");
           // 3. Ulangi Request dengan Token Baru
           final retryResponse = await requestFn().timeout(Duration(seconds: AppEnv.apiTimeoutSeconds));
-          return _handle(retryResponse);
+          return await _handle(retryResponse);
         } else {
           debugPrint("❌ Refresh Gagal. Logout Paksa.");
           await _forceLogout(message: "Sesi berakhir, silakan login kembali.");
@@ -218,7 +219,7 @@ class ApiClient {
       }
 
       // Jika error lain, lempar ke _handle
-      return _handle(response);
+      return await _handle(response);
 
     } on TimeoutException catch (e) {
       debugPrint("⏱️ [HTTP 408 Timeout] Request timed out after ${AppEnv.apiTimeoutSeconds}s: $e");
